@@ -4,13 +4,14 @@
 
 ## ✨ 功能特性
 
-- 📄 **PDF论文处理** - 支持PDF下载、项目克隆、高质量PDF2TEX转换
+- 📄 **PDF论文处理** - 支持PDF下载、使用 **MinerU** 进行高质量PDF转Markdown
 - 🔗 **智能链接提取** - 自动从PDF中提取代码仓库链接和相关资源
 - 🔀 **双路并行处理** - 论文深度搜索器 + 项目深度理解器同时工作，构建论文知识库和代码知识库
-- 🧠 **DeepResearch驱动** - 融合论文、外部知识库、代码知识库的智能分析，生成包含7个标准模块的专业论文解读报告
+- 🔍 **Tavily智能搜索** - 使用Tavily API进行高质量学术和网络搜索
+- 🧠 **统一LLM接口** - 支持 DeepSeek、Qwen、OpenAI 等任何 OpenAI 兼容API
 - 🎨 **强可读性渲染** - 基于模板的HTML渲染，提供优秀的阅读体验
-- 🤖 **多AI集成** - Deepseek论文理解 + Claude Code代码分析的协同工作
 - 🎯 **Gradio界面** - 基于Gradio的交互式Web界面，支持步骤化处理和实时进度显示
+- 🔧 **无外部服务依赖** - 移除FastMCP和Claude Code依赖，完全本地化处理
 
 ## 🏗️ 系统架构
 
@@ -63,9 +64,9 @@ PDF转TEX后系统分为两路并行处理：
 
 ### 环境要求
 - Python 3.11+
-- OpenAI API Key
-- PDFDeal API Key (用于PDF转TEX)
-- Claude Code (可选，用于代码分析)
+- LLM API Key (DeepSeek/OpenAI/Qwen 等 OpenAI 兼容接口)
+- Tavily API Key (用于智能搜索)
+- GPU (可选，MinerU PDF解析加速)
 
 ### 安装步骤
 
@@ -83,20 +84,20 @@ pip install -r requirements.txt
 3. **配置环境变量**
 ```bash
 # 复制环境变量模板
-cp .env.example .env
+cp env.example .env
 
 # 编辑 .env 文件，添加你的配置
-OPENAI_API_KEY=your_openai_api_key_here
-PDFDEAL_API_KEY=your_pdfdeal_api_key_here
-HOST=0.0.0.0
-PORT=8000
-DEBUG=true
+LLM_API_KEY=your_deepseek_api_key_here
+LLM_BASE_URL=https://api.deepseek.com/v1
+LLM_MODEL=deepseek-chat
+TAVILY_API_KEY=your_tavily_api_key_here
 ```
 
 **获取API密钥：**
-- [OpenAI API Key](https://platform.openai.com/api-keys) - 用于论文分析
-- [Claude Code](https://claude.ai/) - 用于代码分析（可选）
-- [PDFDeal API Key](https://noedgeai.github.io/pdfdeal-docs/) - 用于PDF转TEX转换
+- [DeepSeek API](https://platform.deepseek.com/) - 推荐，性价比最高
+- [OpenAI API](https://platform.openai.com/api-keys) - 也可使用
+- [Tavily API](https://tavily.com/) - 用于智能搜索（免费1000次/月）
+- [阿里云百炼](https://bailian.console.aliyun.com/) - Qwen模型，国内稳定
 
 4. **启动应用**
 ```bash
@@ -155,22 +156,29 @@ python gradio_app.py
 
 ### 核心技术
 - **Python 3.11+** - 主要开发语言
-- **requests** - HTTP请求处理
 - **Gradio** - 交互式Web界面框架
-- **dotenv** - 环境变量管理
+- **requests** - HTTP请求处理
+- **python-dotenv** - 环境变量管理
 
-### 数据下载和处理
-- **PDFDeal** - 高质量PDF转TEX转换
+### PDF处理
+- **MinerU (magic-pdf)** - 高质量PDF转Markdown，支持公式和表格
+
+### 搜索引擎
+- **Tavily** - AI优化的搜索API，专为Agent设计
+
+### AI/LLM集成
+- **OpenAI兼容接口** - 统一接口，支持多种LLM：
+  - DeepSeek V3 (推荐，性价比最高)
+  - OpenAI GPT-4
+  - Qwen (阿里通义千问)
+  - 其他OpenAI兼容API
+
+### 代码处理
 - **GitPython** - Git仓库操作
 
-### AI/ML集成
-- **OpenAI / DeepSeek API** - 论文分析
-- **Claude Code** - 代码分析
-- **FastGPT** - 工作流搭建框架
-- **Nija** - DeepSearch引擎
-
 ### 文档处理
-- **Jinja2** - 构建HTML模板
+- **Jinja2** - HTML模板渲染
+- **Markdown** - Markdown解析
 - **Mermaid.js** - 流程图渲染
 
 ## 📁 项目结构
@@ -209,16 +217,36 @@ readpaperWithCode/
 
 | 变量名 | 说明 | 默认值 |
 |--------|------|--------|
-| `OPENAI_API_KEY` | OpenAI API密钥 | 必需 |
-| `PDFDEAL_API_KEY` | PDFDeal API密钥 | 必需 |
-| `SERVER_GET_KEYWORD` | 获取关键字url mcp 服务 | 必需 |
-| `SERVER_SEARCH_LINK` |  huoq website搜索链接| 必需 |
-| `SERVER_SUMMARY` | 获取摘要mcp服务 | 必需 |
-| `SERVER_KNOWLEDGE` | 获取知识库mcp服务 | 必需 |
-| `SERVER_GEN_BLOG` | 生成摘要mcp服务 | 必需 |
+| `LLM_API_KEY` | LLM API密钥 (支持DeepSeek/OpenAI等) | 必需 |
+| `LLM_BASE_URL` | LLM API地址 | `https://api.deepseek.com/v1` |
+| `LLM_MODEL` | 模型名称 | `deepseek-chat` |
+| `TAVILY_API_KEY` | Tavily搜索API密钥 | 必需 |
+| `MINERU_USE_GPU` | MinerU是否使用GPU | `true` |
 | `TEMP_DIR` | 临时文件目录 | `temp/` |
 | `DEBUG` | 调试模式 | `true` |
-| `CLAUDE_CODE_COMMAND` | Claude Code命令 | `claude -p` |
+
+### 支持的LLM配置示例
+
+**DeepSeek (推荐)**
+```bash
+LLM_API_KEY=your_deepseek_key
+LLM_BASE_URL=https://api.deepseek.com/v1
+LLM_MODEL=deepseek-chat
+```
+
+**OpenAI**
+```bash
+LLM_API_KEY=your_openai_key
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=gpt-4-turbo
+```
+
+**Qwen (阿里云百炼)**
+```bash
+LLM_API_KEY=your_dashscope_key
+LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+LLM_MODEL=qwen-plus
+```
 
 ## 🤝 贡献指南
 
