@@ -173,10 +173,7 @@ export const anchorApi = {
 export const skimApi = {
   // 生成SkimCard
   generate: async (paperId: string, forceRegenerate: boolean = false): Promise<SkimCard> => {
-    const res = await api.post('/skim/generate', {
-      paper_id: paperId,
-      force_regenerate: forceRegenerate,
-    });
+    const res = await api.post(`/skim/${paperId}/generate?force=${forceRegenerate}`);
     return res.data;
   },
 
@@ -188,7 +185,7 @@ export const skimApi = {
 
   // 做出阅读决策
   makeDecision: async (data: SkimDecisionRequest) => {
-    const res = await api.post('/skim/decision', data);
+    const res = await api.post(`/skim/${data.paper_id}/decision`, data);
     return res.data;
   },
 

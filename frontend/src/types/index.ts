@@ -231,6 +231,7 @@ export interface SectionTree {
 }
 
 export interface SkimDecisionRequest {
+  paper_id: string;
   decision: 'deep_read' | 'focused_read' | 'skip' | 'archive' | 'queue';
   quality_grade?: string;
 }
