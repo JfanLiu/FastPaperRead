@@ -1,235 +1,373 @@
 """
-审稿模式API路由
+审稿模式API端点 - 完整实现
 """
-from fastapi import APIRouter, HTTPException
-from typing import Optional, List
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from typing import Optional
 from pydantic import BaseModel
 from datetime import datetime
-import uuid
+
+from ...api.deps import get_db, get_enhancer
+from ...crud import paper_crud, skim_crud, card_crud
+from ...core.llm import ContentEnhancer
 
 router = APIRouter()
 
-# 临时存储
-_reviews_db = {}
+
+class ReviewDraftRequest(BaseModel):
+    """审稿草稿请求"""
+    format: str = "structured"  # structured, free, conference
+    language: str = "zh"  # zh, en
 
 
-class ReviewRubric(BaseModel):
-    """审稿评分项"""
-    novelty: int = 0           # 1-5
-    novelty_reason: str = ""
-    soundness: int = 0         # 1-5
-    soundness_reason: str = ""
-    rigor: int = 0             # 1-5
-    rigor_reason: str = ""
-    reproducibility: int = 0   # 1-5
-    reproducibility_reason: str = ""
-    clarity: int = 0           # 1-5
-    clarity_reason: str = ""
+class ReviewFeedback(BaseModel):
+    """审稿反馈"""
+    novelty_score: int  # 1-5
+    novelty_reason: str
+    soundness_score: int  # 1-5
+    soundness_reason: str
+    clarity_score: int  # 1-5
+    clarity_reason: str
+    significance_score: int  # 1-5
+    significance_reason: str
+    reproducibility_score: int  # 1-5
+    reproducibility_reason: str
+    overall_recommendation: str  # accept, weak_accept, weak_reject, reject
+    questions: list[str]
+    minor_issues: list[str]
 
 
-class ReviewQuestion(BaseModel):
-    """审稿问题"""
-    id: str
-    question: str
-    severity: str = "minor"  # major/minor
-    topic: str = "method"    # method/experiment/stats/repro/writing
-    anchor_id: Optional[str] = None
+# 内存存储审稿结果
+_review_drafts = {}
 
 
-class ReviewCreate(BaseModel):
-    """创建审稿"""
-    paper_id: str
-    rubric: Optional[ReviewRubric] = None
-    questions: List[ReviewQuestion] = []
-    recommendation: Optional[str] = None  # strong_accept/weak_accept/weak_reject/strong_reject
-    confidence: Optional[int] = None  # 1-5
-    summary: Optional[str] = None
-
-
-class ReviewResponse(BaseModel):
-    """审稿响应"""
-    id: str
-    paper_id: str
-    rubric: ReviewRubric
-    questions: List[ReviewQuestion]
-    recommendation: Optional[str]
-    confidence: Optional[int]
-    summary: Optional[str]
-    claims_evidence: List[dict] = []
-    created_at: datetime
-    updated_at: datetime
-
-
-@router.post("/generate/{paper_id}")
-async def generate_review_draft(paper_id: str):
-    """生成审稿草稿"""
-    review_id = str(uuid.uuid4())
-    now = datetime.now()
+@router.post("/{paper_id}/draft", response_model=dict)
+async def generate_review_draft(
+    paper_id: str,
+    request: ReviewDraftRequest = ReviewDraftRequest(),
+    db: Session = Depends(get_db),
+    enhancer: ContentEnhancer = Depends(get_enhancer)
+):
+    """
+    生成审稿意见草稿
     
-    # TODO: 基于论文内容和已有卡片生成审稿草稿
-    review = {
-        "id": review_id,
-        "paper_id": paper_id,
-        "rubric": ReviewRubric(
-            novelty=3,
-            novelty_reason="方法有一定新意，但...",
-            soundness=3,
-            soundness_reason="实验设计合理，但...",
-            rigor=3,
-            rigor_reason="统计分析较为完整",
-            reproducibility=2,
-            reproducibility_reason="缺少部分实现细节",
-            clarity=4,
-            clarity_reason="写作清晰"
-        ).model_dump(),
-        "questions": [
-            {
-                "id": str(uuid.uuid4()),
-                "question": "请补充关于超参数选择的说明",
-                "severity": "minor",
-                "topic": "experiment"
-            }
-        ],
-        "recommendation": None,
-        "confidence": None,
-        "summary": None,
-        "claims_evidence": [],
-        "created_at": now,
-        "updated_at": now
+    基于:
+    - SkimCard
+    - 已创建的卡片(EvidenceCard, MethodCard)
+    - 论文内容
+    """
+    paper = paper_crud.get(db, paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="论文不存在")
+    
+    # 收集材料
+    skim = skim_crud.get(db, paper_id)
+    cards = card_crud.get_by_paper(db, paper_id)
+    
+    # 构建上下文
+    context_parts = [f"论文标题: {paper.title}"]
+    
+    if paper.abstract:
+        context_parts.append(f"摘要: {paper.abstract}")
+    
+    if skim:
+        context_parts.append(f"研究问题: {skim.research_question}")
+        if skim.contributions:
+            context_parts.append(f"贡献: {'; '.join(skim.contributions)}")
+        if skim.red_flags:
+            context_parts.append(f"风险点: {'; '.join(skim.red_flags)}")
+        context_parts.append(f"证据强度: {skim.evidence_strength} - {skim.evidence_strength_reason}")
+    
+    # 添加卡片内容
+    for card in cards:
+        if card.type and card.type.value == 'evidence':
+            if card.claim and card.evidence:
+                context_parts.append(f"证据: {card.claim} -> {card.evidence}")
+        elif card.type and card.type.value == 'method':
+            if card.method_name:
+                context_parts.append(f"方法: {card.method_name}")
+    
+    content = "\n".join(context_parts)
+    
+    # 调用LLM生成审稿意见
+    try:
+        review_text = await enhancer.generate_review_draft(content)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"生成失败: {str(e)}")
+    
+    # 解析结构化审稿意见
+    review_draft = _parse_review_draft(review_text, paper, skim)
+    
+    # 存储
+    _review_drafts[paper_id] = {
+        **review_draft,
+        "generated_at": datetime.now().isoformat(),
+        "raw_text": review_text
     }
     
-    _reviews_db[review_id] = review
-    return review
+    return {
+        "paper_id": paper_id,
+        "draft": review_draft,
+        "raw_text": review_text
+    }
 
 
-@router.get("/{paper_id}", response_model=ReviewResponse)
-async def get_review(paper_id: str):
-    """获取论文的审稿"""
-    for review in _reviews_db.values():
-        if review["paper_id"] == paper_id:
-            return review
+@router.get("/{paper_id}/draft", response_model=dict)
+async def get_review_draft(paper_id: str):
+    """
+    获取审稿草稿
+    """
+    if paper_id not in _review_drafts:
+        raise HTTPException(status_code=404, detail="审稿草稿不存在，请先生成")
     
-    raise HTTPException(404, "审稿不存在")
+    return {
+        "paper_id": paper_id,
+        "draft": _review_drafts[paper_id]
+    }
 
 
-@router.put("/{review_id}", response_model=ReviewResponse)
-async def update_review(review_id: str, update: ReviewCreate):
-    """更新审稿"""
-    if review_id not in _reviews_db:
-        raise HTTPException(404, "审稿不存在")
-    
-    review = _reviews_db[review_id]
-    update_data = update.model_dump(exclude_unset=True)
-    review.update(update_data)
-    review["updated_at"] = datetime.now()
-    
-    return review
-
-
-@router.post("/{review_id}/questions")
-async def add_question(review_id: str, question: ReviewQuestion):
-    """添加审稿问题"""
-    if review_id not in _reviews_db:
-        raise HTTPException(404, "审稿不存在")
-    
-    question.id = str(uuid.uuid4())
-    _reviews_db[review_id]["questions"].append(question.model_dump())
-    
-    return {"message": "问题已添加", "question_id": question.id}
-
-
-@router.delete("/{review_id}/questions/{question_id}")
-async def remove_question(review_id: str, question_id: str):
-    """删除审稿问题"""
-    if review_id not in _reviews_db:
-        raise HTTPException(404, "审稿不存在")
-    
-    review = _reviews_db[review_id]
-    review["questions"] = [q for q in review["questions"] if q["id"] != question_id]
-    
-    return {"message": "问题已删除"}
-
-
-@router.get("/{review_id}/claims-evidence")
-async def get_claims_evidence(review_id: str):
-    """获取主张-证据表"""
-    if review_id not in _reviews_db:
-        raise HTTPException(404, "审稿不存在")
-    
-    # TODO: 从EvidenceCard生成
-    return {"claims_evidence": _reviews_db[review_id].get("claims_evidence", [])}
-
-
-@router.post("/{review_id}/recommendation")
-async def set_recommendation(
-    review_id: str, 
-    recommendation: str, 
-    confidence: int
+@router.post("/{paper_id}/feedback", response_model=dict)
+async def submit_review_feedback(
+    paper_id: str,
+    feedback: ReviewFeedback,
+    db: Session = Depends(get_db)
 ):
-    """设置审稿建议"""
-    if review_id not in _reviews_db:
-        raise HTTPException(404, "审稿不存在")
+    """
+    提交/更新审稿反馈
+    """
+    paper = paper_crud.get(db, paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="论文不存在")
     
-    valid_recommendations = ["strong_accept", "weak_accept", "weak_reject", "strong_reject"]
-    if recommendation not in valid_recommendations:
-        raise HTTPException(400, "无效的建议类型")
+    # 计算总分
+    total_score = (
+        feedback.novelty_score +
+        feedback.soundness_score +
+        feedback.clarity_score +
+        feedback.significance_score +
+        feedback.reproducibility_score
+    ) / 5.0
     
-    if not 1 <= confidence <= 5:
-        raise HTTPException(400, "置信度必须在1-5之间")
+    # 存储反馈
+    review_data = {
+        "paper_id": paper_id,
+        "paper_title": paper.title,
+        "scores": {
+            "novelty": {"score": feedback.novelty_score, "reason": feedback.novelty_reason},
+            "soundness": {"score": feedback.soundness_score, "reason": feedback.soundness_reason},
+            "clarity": {"score": feedback.clarity_score, "reason": feedback.clarity_reason},
+            "significance": {"score": feedback.significance_score, "reason": feedback.significance_reason},
+            "reproducibility": {"score": feedback.reproducibility_score, "reason": feedback.reproducibility_reason},
+        },
+        "total_score": round(total_score, 1),
+        "recommendation": feedback.overall_recommendation,
+        "questions": feedback.questions,
+        "minor_issues": feedback.minor_issues,
+        "submitted_at": datetime.now().isoformat()
+    }
     
-    _reviews_db[review_id]["recommendation"] = recommendation
-    _reviews_db[review_id]["confidence"] = confidence
-    _reviews_db[review_id]["updated_at"] = datetime.now()
+    _review_drafts[paper_id] = {
+        **_review_drafts.get(paper_id, {}),
+        "feedback": review_data
+    }
     
-    return {"message": "建议已设置"}
+    return {
+        "message": "反馈已保存",
+        "total_score": total_score,
+        "recommendation": feedback.overall_recommendation
+    }
 
 
-@router.get("/{review_id}/export")
-async def export_review(review_id: str, format: str = "markdown"):
-    """导出审稿报告"""
-    if review_id not in _reviews_db:
-        raise HTTPException(404, "审稿不存在")
+@router.get("/{paper_id}/export-review", response_model=dict)
+async def export_review(
+    paper_id: str,
+    format: str = "markdown",
+    db: Session = Depends(get_db)
+):
+    """
+    导出审稿意见
+    """
+    if paper_id not in _review_drafts:
+        raise HTTPException(status_code=404, detail="审稿记录不存在")
     
-    review = _reviews_db[review_id]
+    review = _review_drafts[paper_id]
+    paper = paper_crud.get(db, paper_id)
     
     if format == "markdown":
-        content = _generate_review_markdown(review)
+        content = _format_review_as_markdown(review, paper)
     else:
-        content = str(review)
+        content = review.get("raw_text", "")
     
-    return {"format": format, "content": content}
+    return {
+        "paper_id": paper_id,
+        "format": format,
+        "content": content
+    }
 
 
-def _generate_review_markdown(review: dict) -> str:
-    """生成Markdown格式的审稿报告"""
-    rubric = review.get("rubric", {})
-    questions = review.get("questions", [])
+@router.get("/{paper_id}/rubric", response_model=dict)
+async def get_review_rubric(paper_id: str):
+    """
+    获取审稿评分标准
+    """
+    rubric = {
+        "novelty": {
+            "name": "新颖性",
+            "description": "论文提出的方法/想法是否新颖",
+            "scale": [
+                {"score": 1, "label": "无新意", "description": "完全是现有工作的重复"},
+                {"score": 2, "label": "新意有限", "description": "仅有小的改进"},
+                {"score": 3, "label": "一定新意", "description": "有一些新的想法或方法"},
+                {"score": 4, "label": "较新颖", "description": "提出了有价值的新方法"},
+                {"score": 5, "label": "非常新颖", "description": "开创性工作"},
+            ]
+        },
+        "soundness": {
+            "name": "严谨性",
+            "description": "技术方法是否正确、实验是否可靠",
+            "scale": [
+                {"score": 1, "label": "存在重大问题", "description": "方法或实验有明显错误"},
+                {"score": 2, "label": "有一些问题", "description": "存在一些需要澄清的问题"},
+                {"score": 3, "label": "基本可靠", "description": "总体正确但有小问题"},
+                {"score": 4, "label": "严谨", "description": "方法和实验都很可靠"},
+                {"score": 5, "label": "非常严谨", "description": "方法论和实验无可挑剔"},
+            ]
+        },
+        "clarity": {
+            "name": "清晰度",
+            "description": "论文写作是否清晰易懂",
+            "scale": [
+                {"score": 1, "label": "难以理解", "description": "结构混乱、表达不清"},
+                {"score": 2, "label": "需改进", "description": "部分内容难以理解"},
+                {"score": 3, "label": "尚可", "description": "基本清晰但有改进空间"},
+                {"score": 4, "label": "清晰", "description": "写作清晰、结构良好"},
+                {"score": 5, "label": "非常清晰", "description": "表达优秀、易于理解"},
+            ]
+        },
+        "significance": {
+            "name": "重要性",
+            "description": "工作对领域的潜在影响",
+            "scale": [
+                {"score": 1, "label": "不重要", "description": "对领域没有明显贡献"},
+                {"score": 2, "label": "有限贡献", "description": "贡献较小"},
+                {"score": 3, "label": "有一定贡献", "description": "对特定问题有价值"},
+                {"score": 4, "label": "重要", "description": "对领域有明显贡献"},
+                {"score": 5, "label": "非常重要", "description": "可能产生重大影响"},
+            ]
+        },
+        "reproducibility": {
+            "name": "可复现性",
+            "description": "是否提供足够信息以复现结果",
+            "scale": [
+                {"score": 1, "label": "无法复现", "description": "缺少关键细节"},
+                {"score": 2, "label": "困难", "description": "缺少部分重要信息"},
+                {"score": 3, "label": "可能", "description": "信息基本完整"},
+                {"score": 4, "label": "较易", "description": "提供了详细的实验设置"},
+                {"score": 5, "label": "完全可复现", "description": "提供代码和数据"},
+            ]
+        }
+    }
     
-    md = f"""# Review Report
+    return {"rubric": rubric}
 
-## Scores
 
-| Criterion | Score | Reason |
-|-----------|-------|--------|
-| Novelty | {rubric.get('novelty', '-')}/5 | {rubric.get('novelty_reason', '-')} |
-| Soundness | {rubric.get('soundness', '-')}/5 | {rubric.get('soundness_reason', '-')} |
-| Rigor | {rubric.get('rigor', '-')}/5 | {rubric.get('rigor_reason', '-')} |
-| Reproducibility | {rubric.get('reproducibility', '-')}/5 | {rubric.get('reproducibility_reason', '-')} |
-| Clarity | {rubric.get('clarity', '-')}/5 | {rubric.get('clarity_reason', '-')} |
-
-## Questions for Authors
-
-"""
+def _parse_review_draft(review_text: str, paper, skim) -> dict:
+    """
+    解析审稿草稿文本为结构化格式
+    """
+    # 基于SkimCard预填一些信息
+    draft = {
+        "summary": "",
+        "strengths": [],
+        "weaknesses": [],
+        "questions": [],
+        "minor_issues": [],
+        "recommendation": "weak_accept"
+    }
     
-    for i, q in enumerate(questions, 1):
-        severity = "🔴" if q.get("severity") == "major" else "🟡"
-        md += f"{i}. {severity} [{q.get('topic', 'general')}] {q.get('question', '')}\n"
+    # 简单解析
+    lines = review_text.split('\n')
+    current_section = None
     
-    if review.get("recommendation"):
-        md += f"\n## Recommendation\n\n**{review['recommendation']}** (Confidence: {review.get('confidence', '-')}/5)\n"
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        
+        if "总体评价" in line or "Summary" in line.lower():
+            current_section = "summary"
+        elif "优点" in line or "Strengths" in line.lower():
+            current_section = "strengths"
+        elif "问题" in line or "Weaknesses" in line.lower():
+            current_section = "weaknesses"
+        elif "建议" in line or "Questions" in line.lower():
+            current_section = "questions"
+        elif "小问题" in line or "Minor" in line.lower():
+            current_section = "minor_issues"
+        elif "结论" in line or "Conclusion" in line.lower():
+            current_section = "recommendation"
+        elif line.startswith(('-', '•', '*', '1', '2', '3')):
+            # 列表项
+            item = line.lstrip('-•*0123456789. ')
+            if current_section == "strengths":
+                draft["strengths"].append(item)
+            elif current_section == "weaknesses":
+                draft["weaknesses"].append(item)
+            elif current_section == "questions":
+                draft["questions"].append(item)
+            elif current_section == "minor_issues":
+                draft["minor_issues"].append(item)
+        elif current_section == "summary":
+            draft["summary"] += line + " "
     
-    if review.get("summary"):
-        md += f"\n## Summary\n\n{review['summary']}\n"
+    draft["summary"] = draft["summary"].strip()
     
-    return md
+    return draft
 
+
+def _format_review_as_markdown(review: dict, paper) -> str:
+    """
+    格式化审稿意见为Markdown
+    """
+    lines = [f"# 审稿意见: {paper.title if paper else 'Unknown'}\n"]
+    
+    if review.get("feedback"):
+        fb = review["feedback"]
+        lines.append("## 评分\n")
+        for dim, data in fb.get("scores", {}).items():
+            lines.append(f"- **{dim}**: {data['score']}/5 - {data['reason']}")
+        lines.append(f"\n**总分**: {fb.get('total_score', 'N/A')}/5")
+        lines.append(f"**建议**: {fb.get('recommendation', 'N/A')}\n")
+    
+    draft = review.get("draft", review)
+    
+    if draft.get("summary"):
+        lines.append("## 总体评价\n")
+        lines.append(draft["summary"] + "\n")
+    
+    if draft.get("strengths"):
+        lines.append("## 主要优点\n")
+        for s in draft["strengths"]:
+            lines.append(f"- {s}")
+        lines.append("")
+    
+    if draft.get("weaknesses"):
+        lines.append("## 主要问题\n")
+        for w in draft["weaknesses"]:
+            lines.append(f"- {w}")
+        lines.append("")
+    
+    if draft.get("questions"):
+        lines.append("## 问题\n")
+        for q in draft["questions"]:
+            lines.append(f"- {q}")
+        lines.append("")
+    
+    if draft.get("minor_issues"):
+        lines.append("## 小问题\n")
+        for m in draft["minor_issues"]:
+            lines.append(f"- {m}")
+    
+    lines.append(f"\n---\n*生成时间: {review.get('generated_at', 'N/A')}*")
+    
+    return "\n".join(lines)

@@ -1,351 +1,366 @@
 """
-锚点提取器
-
-从解析后的PDF内容中提取各类锚点：
-- 段落锚点
-- 图表锚点
-- 公式锚点
-- 表格锚点
-- 章节锚点
-- 引用锚点
+锚点提取器 - 从解析结果中提取结构化锚点
 """
 import re
-import uuid
-from typing import List, Dict, Any, Optional, Tuple
-from pathlib import Path
+from typing import List, Dict, Optional
+from dataclasses import dataclass
+import logging
 
-from ...models.anchor import (
-    Anchor, AnchorType, BoundingBox, 
-    SectionTree, SectionNode
-)
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ExtractedAnchor:
+    """提取的锚点"""
+    type: str  # paragraph, section, figure, table, equation, citation
+    page: int
+    sequence: int
+    section: str
+    section_level: int
+    text: str
+    caption: Optional[str] = None
+    latex: Optional[str] = None
+    image_path: Optional[str] = None
+    figure_number: Optional[str] = None
+    equation_number: Optional[str] = None
+    table_data: Optional[Dict] = None
+    ref_id: Optional[str] = None
+    ref_text: Optional[str] = None
+    bbox: Optional[List[float]] = None
 
 
 class AnchorExtractor:
-    """锚点提取器"""
+    """
+    锚点提取器
     
-    def __init__(self, paper_id: str):
-        self.paper_id = paper_id
-        self.anchors: List[Anchor] = []
-        self.section_tree: Optional[SectionTree] = None
-        self._sequence_counter = 0
+    从Markdown内容和解析结果中提取结构化锚点
+    """
     
-    def _next_sequence(self) -> int:
-        """获取下一个序号"""
-        self._sequence_counter += 1
-        return self._sequence_counter
+    def __init__(self):
+        # 章节模式匹配
+        self.section_patterns = [
+            (r'^#{1,6}\s+(.+)$', 'heading'),  # Markdown heading
+            (r'^(\d+\.(?:\d+\.)*)\s+(.+)$', 'numbered'),  # 1. or 1.1 or 1.1.1
+            (r'^(Abstract|Introduction|Related Work|Method|Experiments?|Results?|Discussion|Conclusion|References?)s?\s*$', 'keyword'),
+        ]
+        
+        # 公式模式
+        self.equation_patterns = [
+            r'\$\$(.+?)\$\$',  # Display math
+            r'\\\[(.+?)\\\]',  # LaTeX display
+            r'\\begin\{equation\}(.+?)\\end\{equation\}',
+        ]
+        
+        # 图表引用模式
+        self.figure_ref_pattern = r'(?:Figure|Fig\.?|图)\s*(\d+(?:\.\d+)?)'
+        self.table_ref_pattern = r'(?:Table|表)\s*(\d+(?:\.\d+)?)'
+        
+        # 引用模式
+        self.citation_patterns = [
+            r'\[(\d+(?:,\s*\d+)*)\]',  # [1], [1,2,3]
+            r'\(([A-Z][a-z]+(?:\s+et\s+al\.?)?,?\s*\d{4}(?:;\s*[A-Z][a-z]+(?:\s+et\s+al\.?)?,?\s*\d{4})*)\)',  # (Author, 2020)
+        ]
     
-    def extract_all(
-        self, 
-        parsed_content: Dict[str, Any],
-        pdf_path: Optional[str] = None
-    ) -> Tuple[List[Anchor], SectionTree]:
+    def extract_from_markdown(
+        self,
+        markdown_content: str,
+        content_list: List[Dict] = None,
+        figures: List[Dict] = None,
+        tables: List[Dict] = None,
+        equations: List[Dict] = None
+    ) -> List[ExtractedAnchor]:
         """
-        从解析内容中提取所有锚点
+        从Markdown内容中提取锚点
         
         Args:
-            parsed_content: MinerU解析后的内容
-            pdf_path: PDF文件路径（用于提取图片）
+            markdown_content: Markdown文本
+            content_list: MinerU的content_list(可选)
+            figures: 图表列表(可选)
+            tables: 表格列表(可选)
+            equations: 公式列表(可选)
             
         Returns:
-            (锚点列表, 章节树)
+            List[ExtractedAnchor]: 提取的锚点列表
         """
-        self.anchors = []
-        self._sequence_counter = 0
+        anchors = []
+        sequence = 0
+        current_section = ""
+        current_section_level = 0
+        current_page = 1
         
-        # 1. 提取章节
-        sections = parsed_content.get("sections", [])
-        self._extract_sections(sections)
+        lines = markdown_content.split('\n')
+        i = 0
         
-        # 2. 提取段落
-        paragraphs = parsed_content.get("paragraphs", [])
-        self._extract_paragraphs(paragraphs)
-        
-        # 3. 提取图表
-        figures = parsed_content.get("figures", [])
-        self._extract_figures(figures)
-        
-        # 4. 提取表格
-        tables = parsed_content.get("tables", [])
-        self._extract_tables(tables)
-        
-        # 5. 提取公式
-        equations = parsed_content.get("equations", [])
-        self._extract_equations(equations)
-        
-        # 6. 提取引用
-        references = parsed_content.get("references", [])
-        self._extract_references(references)
-        
-        # 7. 构建章节树
-        self.section_tree = self._build_section_tree()
-        
-        return self.anchors, self.section_tree
-    
-    def _extract_sections(self, sections: List[Dict]) -> None:
-        """提取章节锚点"""
-        for section in sections:
-            anchor = Anchor(
-                id=str(uuid.uuid4()),
-                paper_id=self.paper_id,
-                type=AnchorType.SECTION,
-                page=section.get("page", 1),
-                bbox=self._parse_bbox(section.get("bbox")),
-                section=section.get("title", ""),
-                section_level=section.get("level", 1),
-                sequence=self._next_sequence(),
-                text=section.get("title", ""),
-                metadata={
-                    "level": section.get("level", 1),
-                    "parent": section.get("parent"),
-                }
-            )
-            self.anchors.append(anchor)
-    
-    def _extract_paragraphs(self, paragraphs: List[Dict]) -> None:
-        """提取段落锚点"""
-        current_section = None
-        
-        for para in paragraphs:
-            # 跳过太短的段落
-            text = para.get("text", "").strip()
-            if len(text) < 20:
+        while i < len(lines):
+            line = lines[i].strip()
+            
+            # 检测页码标记
+            page_match = re.match(r'<!--\s*Page\s+(\d+)\s*-->', line)
+            if page_match:
+                current_page = int(page_match.group(1))
+                i += 1
                 continue
             
-            # 更新当前章节
-            if para.get("section"):
-                current_section = para.get("section")
+            # 检测章节
+            section_anchor = self._extract_section(line, current_page, sequence)
+            if section_anchor:
+                current_section = section_anchor.text
+                current_section_level = section_anchor.section_level
+                section_anchor.section = current_section
+                anchors.append(section_anchor)
+                sequence += 1
+                i += 1
+                continue
             
-            anchor = Anchor(
-                id=str(uuid.uuid4()),
-                paper_id=self.paper_id,
-                type=AnchorType.PARAGRAPH,
-                page=para.get("page", 1),
-                bbox=self._parse_bbox(para.get("bbox")),
-                section=current_section,
-                sequence=self._next_sequence(),
-                text=text,
-                metadata={
-                    "word_count": len(text.split()),
-                    "has_citations": bool(re.search(r'\[\d+\]|\([A-Z][a-z]+.*?\d{4}\)', text)),
-                }
-            )
-            self.anchors.append(anchor)
-    
-    def _extract_figures(self, figures: List[Dict]) -> None:
-        """提取图表锚点"""
-        for fig in figures:
-            # 提取图号
-            caption = fig.get("caption", "")
-            figure_number = self._extract_figure_number(caption)
+            # 检测公式（多行）
+            if line.startswith('$$') or line.startswith('\\['):
+                equation_lines = [line]
+                i += 1
+                while i < len(lines) and not (lines[i].strip().endswith('$$') or lines[i].strip().endswith('\\]')):
+                    equation_lines.append(lines[i])
+                    i += 1
+                if i < len(lines):
+                    equation_lines.append(lines[i])
+                
+                latex = '\n'.join(equation_lines)
+                anchors.append(ExtractedAnchor(
+                    type='equation',
+                    page=current_page,
+                    sequence=sequence,
+                    section=current_section,
+                    section_level=current_section_level,
+                    text=latex,
+                    latex=self._clean_latex(latex)
+                ))
+                sequence += 1
+                i += 1
+                continue
             
-            anchor = Anchor(
-                id=str(uuid.uuid4()),
-                paper_id=self.paper_id,
-                type=AnchorType.FIGURE,
-                page=fig.get("page", 1),
-                bbox=self._parse_bbox(fig.get("bbox")),
-                sequence=self._next_sequence(),
-                text=caption,
-                caption=caption,
-                image_path=fig.get("image_path"),
-                figure_number=figure_number,
-                metadata={
-                    "width": fig.get("width"),
-                    "height": fig.get("height"),
-                    "format": fig.get("format", "png"),
-                }
-            )
-            self.anchors.append(anchor)
-    
-    def _extract_tables(self, tables: List[Dict]) -> None:
-        """提取表格锚点"""
-        for table in tables:
-            caption = table.get("caption", "")
+            # 检测图表引用
+            if re.search(self.figure_ref_pattern, line, re.IGNORECASE):
+                anchors.append(ExtractedAnchor(
+                    type='figure',
+                    page=current_page,
+                    sequence=sequence,
+                    section=current_section,
+                    section_level=current_section_level,
+                    text=line,
+                    caption=line
+                ))
+                sequence += 1
             
-            anchor = Anchor(
-                id=str(uuid.uuid4()),
-                paper_id=self.paper_id,
-                type=AnchorType.TABLE,
-                page=table.get("page", 1),
-                bbox=self._parse_bbox(table.get("bbox")),
-                sequence=self._next_sequence(),
-                text=caption,
-                caption=caption,
-                table_data=table.get("data"),  # 表格结构化数据
-                metadata={
-                    "rows": table.get("rows", 0),
-                    "cols": table.get("cols", 0),
-                    "has_header": table.get("has_header", True),
-                }
-            )
-            self.anchors.append(anchor)
-    
-    def _extract_equations(self, equations: List[Dict]) -> None:
-        """提取公式锚点"""
-        for eq in equations:
-            latex = eq.get("latex", eq.get("text", ""))
+            # 检测表格引用
+            if re.search(self.table_ref_pattern, line, re.IGNORECASE):
+                anchors.append(ExtractedAnchor(
+                    type='table',
+                    page=current_page,
+                    sequence=sequence,
+                    section=current_section,
+                    section_level=current_section_level,
+                    text=line,
+                    caption=line
+                ))
+                sequence += 1
             
-            # 提取符号
-            symbols = self._extract_symbols(latex)
+            # 检测段落
+            if line and not line.startswith('#') and len(line) > 50:
+                # 合并连续的段落行
+                paragraph_lines = [line]
+                i += 1
+                while i < len(lines) and lines[i].strip() and not lines[i].strip().startswith('#'):
+                    paragraph_lines.append(lines[i].strip())
+                    i += 1
+                
+                paragraph_text = ' '.join(paragraph_lines)
+                
+                # 检测段落中的引用
+                citations = self._extract_citations(paragraph_text)
+                
+                anchors.append(ExtractedAnchor(
+                    type='paragraph',
+                    page=current_page,
+                    sequence=sequence,
+                    section=current_section,
+                    section_level=current_section_level,
+                    text=paragraph_text
+                ))
+                sequence += 1
+                
+                # 为引用创建单独的锚点
+                for citation in citations:
+                    anchors.append(ExtractedAnchor(
+                        type='citation',
+                        page=current_page,
+                        sequence=sequence,
+                        section=current_section,
+                        section_level=current_section_level,
+                        text=citation['text'],
+                        ref_id=citation['ref_id'],
+                        ref_text=citation['ref_text']
+                    ))
+                    sequence += 1
+                
+                continue
             
-            # 提取公式编号
-            eq_number = eq.get("number") or self._extract_equation_number(eq.get("text", ""))
-            
-            anchor = Anchor(
-                id=str(uuid.uuid4()),
-                paper_id=self.paper_id,
-                type=AnchorType.EQUATION,
-                page=eq.get("page", 1),
-                bbox=self._parse_bbox(eq.get("bbox")),
-                sequence=self._next_sequence(),
-                text=eq.get("text", latex),
-                latex=latex,
-                equation_number=eq_number,
-                symbols=symbols,
-                metadata={
-                    "is_inline": eq.get("is_inline", False),
-                    "is_numbered": bool(eq_number),
-                }
-            )
-            self.anchors.append(anchor)
-    
-    def _extract_references(self, references: List[Dict]) -> None:
-        """提取引用锚点"""
-        for i, ref in enumerate(references):
-            anchor = Anchor(
-                id=str(uuid.uuid4()),
-                paper_id=self.paper_id,
-                type=AnchorType.CITATION,
-                page=ref.get("page", 1),
-                bbox=self._parse_bbox(ref.get("bbox")),
-                sequence=self._next_sequence(),
-                text=ref.get("text", ""),
-                ref_id=ref.get("id", f"ref_{i+1}"),
-                ref_text=ref.get("text", ""),
-                metadata={
-                    "authors": ref.get("authors", []),
-                    "title": ref.get("title"),
-                    "year": ref.get("year"),
-                    "venue": ref.get("venue"),
-                    "doi": ref.get("doi"),
-                }
-            )
-            self.anchors.append(anchor)
-    
-    def _build_section_tree(self) -> SectionTree:
-        """构建章节树"""
-        section_anchors = [a for a in self.anchors if a.type == AnchorType.SECTION]
-        section_anchors.sort(key=lambda x: x.sequence)
+            i += 1
         
-        root_nodes: List[SectionNode] = []
-        node_stack: List[Tuple[int, SectionNode]] = []  # (level, node)
+        # 合并MinerU的图表和公式信息
+        if figures:
+            anchors = self._merge_figures(anchors, figures)
+        if tables:
+            anchors = self._merge_tables(anchors, tables)
+        if equations:
+            anchors = self._merge_equations(anchors, equations)
         
-        for anchor in section_anchors:
-            node = SectionNode(
-                id=str(uuid.uuid4()),
-                title=anchor.text,
-                level=anchor.section_level,
-                anchor_id=anchor.id,
-                page=anchor.page,
-                children=[],
-                is_read=False,
-                is_must_read=self._is_must_read_section(anchor.text)
-            )
-            
-            # 找到父节点
-            while node_stack and node_stack[-1][0] >= node.level:
-                node_stack.pop()
-            
-            if node_stack:
-                # 添加到父节点
-                parent_level, parent_node = node_stack[-1]
-                parent_node.children.append(node)
-            else:
-                # 顶级节点
-                root_nodes.append(node)
-            
-            node_stack.append((node.level, node))
-        
-        return SectionTree(paper_id=self.paper_id, sections=root_nodes)
+        return anchors
     
-    def _is_must_read_section(self, title: str) -> bool:
-        """判断是否为必读章节"""
-        must_read_keywords = [
-            "abstract", "introduction", "method", "approach",
-            "experiment", "result", "conclusion", "related work",
-            "摘要", "引言", "方法", "实验", "结果", "结论"
+    def _extract_section(self, line: str, page: int, sequence: int) -> Optional[ExtractedAnchor]:
+        """提取章节"""
+        # Markdown heading
+        heading_match = re.match(r'^(#{1,6})\s+(.+)$', line)
+        if heading_match:
+            level = len(heading_match.group(1))
+            text = heading_match.group(2).strip()
+            return ExtractedAnchor(
+                type='section',
+                page=page,
+                sequence=sequence,
+                section=text,
+                section_level=level,
+                text=text
+            )
+        
+        # Numbered section
+        numbered_match = re.match(r'^(\d+(?:\.\d+)*)\s+(.+)$', line)
+        if numbered_match:
+            number = numbered_match.group(1)
+            text = numbered_match.group(2).strip()
+            level = len(number.split('.'))
+            return ExtractedAnchor(
+                type='section',
+                page=page,
+                sequence=sequence,
+                section=f"{number} {text}",
+                section_level=level,
+                text=f"{number} {text}"
+            )
+        
+        # Keyword section
+        for keyword in ['Abstract', 'Introduction', 'Related Work', 'Method', 'Methodology',
+                       'Experiments', 'Results', 'Discussion', 'Conclusion', 'References']:
+            if line.lower().startswith(keyword.lower()):
+                return ExtractedAnchor(
+                    type='section',
+                    page=page,
+                    sequence=sequence,
+                    section=keyword,
+                    section_level=1,
+                    text=line
+                )
+        
+        return None
+    
+    def _extract_citations(self, text: str) -> List[Dict]:
+        """提取引用"""
+        citations = []
+        
+        # [1], [1,2,3] 格式
+        for match in re.finditer(r'\[(\d+(?:,\s*\d+)*)\]', text):
+            ref_ids = [r.strip() for r in match.group(1).split(',')]
+            for ref_id in ref_ids:
+                citations.append({
+                    'ref_id': ref_id,
+                    'ref_text': match.group(0),
+                    'text': match.group(0)
+                })
+        
+        # (Author, 2020) 格式
+        for match in re.finditer(r'\(([A-Z][a-z]+(?:\s+et\s+al\.?)?,?\s*\d{4})\)', text):
+            citations.append({
+                'ref_id': match.group(1),
+                'ref_text': match.group(0),
+                'text': match.group(0)
+            })
+        
+        return citations
+    
+    def _clean_latex(self, latex: str) -> str:
+        """清理LaTeX代码"""
+        # 移除$$和\[\]
+        latex = re.sub(r'^\$\$|\$\$$', '', latex.strip())
+        latex = re.sub(r'^\\\[|\\\]$', '', latex.strip())
+        return latex.strip()
+    
+    def _merge_figures(self, anchors: List[ExtractedAnchor], figures: List[Dict]) -> List[ExtractedAnchor]:
+        """合并图表信息"""
+        figure_map = {f.get('id', str(i)): f for i, f in enumerate(figures)}
+        
+        for anchor in anchors:
+            if anchor.type == 'figure':
+                # 尝试匹配图表
+                fig_num_match = re.search(r'(\d+)', anchor.text or '')
+                if fig_num_match:
+                    fig_num = fig_num_match.group(1)
+                    for fid, fig in figure_map.items():
+                        if fig_num in fid or fig_num in str(fig.get('number', '')):
+                            anchor.image_path = fig.get('path', '')
+                            anchor.figure_number = fig.get('number', fig_num)
+                            anchor.caption = fig.get('caption', anchor.caption)
+                            break
+        
+        return anchors
+    
+    def _merge_tables(self, anchors: List[ExtractedAnchor], tables: List[Dict]) -> List[ExtractedAnchor]:
+        """合并表格信息"""
+        for anchor in anchors:
+            if anchor.type == 'table':
+                # 尝试匹配表格
+                table_num_match = re.search(r'(\d+)', anchor.text or '')
+                if table_num_match:
+                    table_num = table_num_match.group(1)
+                    for table in tables:
+                        if table_num in str(table.get('number', '')):
+                            anchor.table_data = table.get('data')
+                            anchor.caption = table.get('caption', anchor.caption)
+                            break
+        
+        return anchors
+    
+    def _merge_equations(self, anchors: List[ExtractedAnchor], equations: List[Dict]) -> List[ExtractedAnchor]:
+        """合并公式信息"""
+        for anchor in anchors:
+            if anchor.type == 'equation' and not anchor.latex:
+                for eq in equations:
+                    if eq.get('latex'):
+                        anchor.latex = eq['latex']
+                        anchor.equation_number = eq.get('number')
+                        break
+        
+        return anchors
+    
+    def to_dict_list(self, anchors: List[ExtractedAnchor]) -> List[Dict]:
+        """转换为字典列表，用于数据库存储"""
+        return [
+            {
+                'type': a.type,
+                'page': a.page,
+                'sequence': a.sequence,
+                'section': a.section,
+                'section_level': a.section_level,
+                'text': a.text,
+                'caption': a.caption,
+                'latex': a.latex,
+                'image_path': a.image_path,
+                'figure_number': a.figure_number,
+                'equation_number': a.equation_number,
+                'table_data': a.table_data,
+                'ref_id': a.ref_id,
+                'ref_text': a.ref_text,
+                'bbox': a.bbox,
+            }
+            for a in anchors
         ]
-        title_lower = title.lower()
-        return any(kw in title_lower for kw in must_read_keywords)
-    
-    def _parse_bbox(self, bbox_data: Any) -> Optional[BoundingBox]:
-        """解析边界框"""
-        if not bbox_data:
-            return None
-        
-        if isinstance(bbox_data, (list, tuple)) and len(bbox_data) >= 4:
-            return BoundingBox(
-                x1=float(bbox_data[0]),
-                y1=float(bbox_data[1]),
-                x2=float(bbox_data[2]),
-                y2=float(bbox_data[3])
-            )
-        elif isinstance(bbox_data, dict):
-            return BoundingBox(
-                x1=float(bbox_data.get("x1", 0)),
-                y1=float(bbox_data.get("y1", 0)),
-                x2=float(bbox_data.get("x2", 1)),
-                y2=float(bbox_data.get("y2", 1))
-            )
-        return None
-    
-    def _extract_figure_number(self, caption: str) -> Optional[str]:
-        """从caption中提取图号"""
-        patterns = [
-            r'(Figure|Fig\.?|图)\s*(\d+)',
-            r'(Table|表)\s*(\d+)',
-        ]
-        for pattern in patterns:
-            match = re.search(pattern, caption, re.IGNORECASE)
-            if match:
-                return f"{match.group(1)} {match.group(2)}"
-        return None
-    
-    def _extract_equation_number(self, text: str) -> Optional[str]:
-        """从文本中提取公式编号"""
-        match = re.search(r'\((\d+)\)$', text.strip())
-        if match:
-            return match.group(1)
-        return None
-    
-    def _extract_symbols(self, latex: str) -> List[str]:
-        """从LaTeX中提取符号"""
-        # 简化的符号提取
-        symbols = set()
-        
-        # 提取单字母变量
-        for match in re.finditer(r'(?<!\\)([a-zA-Z])(?![a-zA-Z])', latex):
-            symbols.add(match.group(1))
-        
-        # 提取希腊字母
-        greek_pattern = r'\\(alpha|beta|gamma|delta|epsilon|theta|lambda|mu|sigma|phi|psi|omega)'
-        for match in re.finditer(greek_pattern, latex, re.IGNORECASE):
-            symbols.add(f"\\{match.group(1)}")
-        
-        return list(symbols)
-    
-    def get_anchors_by_type(self, anchor_type: AnchorType) -> List[Anchor]:
-        """按类型获取锚点"""
-        return [a for a in self.anchors if a.type == anchor_type]
-    
-    def get_anchors_by_page(self, page: int) -> List[Anchor]:
-        """按页码获取锚点"""
-        return [a for a in self.anchors if a.page == page]
-    
-    def get_anchor_by_id(self, anchor_id: str) -> Optional[Anchor]:
-        """根据ID获取锚点"""
-        for anchor in self.anchors:
-            if anchor.id == anchor_id:
-                return anchor
-        return None
 
+
+# 单例实例
+anchor_extractor = AnchorExtractor()

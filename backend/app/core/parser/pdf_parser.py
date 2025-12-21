@@ -1,409 +1,350 @@
 """
-PDF解析器
-
-使用MinerU进行PDF解析，提取结构化内容
+PDF解析器 - 使用MinerU进行高质量PDF解析
 """
 import os
 import json
 import asyncio
-from typing import Dict, Any, Optional, Tuple, List
+import subprocess
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
 import logging
-
-from ...models.paper import Paper, PaperStatus, PaperSource
-from ...models.anchor import Anchor, SectionTree
-from .anchor_extractor import AnchorExtractor
 
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class ParseResult:
+    """解析结果"""
+    markdown_path: str
+    content_list: List[Dict]
+    figures: List[Dict]
+    tables: List[Dict]
+    equations: List[Dict]
+    metadata: Dict
+    success: bool
+    error: Optional[str] = None
+
+
 class PDFParser:
-    """PDF解析器 - 使用MinerU"""
+    """
+    PDF解析器
     
-    def __init__(self, temp_dir: str = "temp"):
-        self.temp_dir = Path(temp_dir)
-        self.temp_dir.mkdir(parents=True, exist_ok=True)
-        
-        # 检查MinerU是否可用
-        self._mineru_available = False
-        try:
-            from magic_pdf.data.data_reader_writer import FileBasedDataWriter
-            self._mineru_available = True
-        except ImportError:
-            logger.warning("MinerU (magic-pdf) 未安装，将使用简化解析")
+    使用MinerU(magic-pdf)进行高质量PDF解析，提取：
+    - 结构化文本(Markdown)
+    - 图表
+    - 表格
+    - 公式
+    """
     
-    async def parse_pdf(
-        self, 
-        pdf_path: str,
-        paper_id: str
-    ) -> Tuple[Paper, List[Anchor], SectionTree]:
+    def __init__(self, output_dir: str = "./output"):
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+    
+    async def parse(self, pdf_path: str) -> ParseResult:
         """
         解析PDF文件
         
         Args:
             pdf_path: PDF文件路径
-            paper_id: 论文ID
             
         Returns:
-            (Paper对象, 锚点列表, 章节树)
+            ParseResult: 解析结果
         """
-        if not os.path.exists(pdf_path):
-            raise FileNotFoundError(f"PDF文件不存在: {pdf_path}")
+        pdf_path = Path(pdf_path)
+        if not pdf_path.exists():
+            return ParseResult(
+                markdown_path="",
+                content_list=[],
+                figures=[],
+                tables=[],
+                equations=[],
+                metadata={},
+                success=False,
+                error=f"PDF文件不存在: {pdf_path}"
+            )
         
         # 创建输出目录
-        output_dir = self.temp_dir / f"parsed_{paper_id}"
-        output_dir.mkdir(parents=True, exist_ok=True)
+        output_name = pdf_path.stem
+        output_path = self.output_dir / output_name
+        output_path.mkdir(parents=True, exist_ok=True)
         
-        # 解析PDF
-        if self._mineru_available:
-            parsed_content = await self._parse_with_mineru(pdf_path, output_dir)
-        else:
-            parsed_content = await self._parse_fallback(pdf_path, output_dir)
-        
-        # 提取元数据
-        metadata = self._extract_metadata(parsed_content)
-        
-        # 创建Paper对象
-        paper = Paper(
-            id=paper_id,
-            title=metadata.get("title", "Untitled"),
-            authors=metadata.get("authors", []),
-            year=metadata.get("year"),
-            abstract=metadata.get("abstract"),
-            pdf_path=pdf_path,
-            markdown_path=str(output_dir / "output.md"),
-            status=PaperStatus.UNREAD
-        )
-        
-        # 提取锚点
-        extractor = AnchorExtractor(paper_id)
-        anchors, section_tree = extractor.extract_all(parsed_content, pdf_path)
-        
-        # 更新Paper的锚点ID
-        paper.anchor_ids = [a.id for a in anchors]
-        
-        # 保存解析结果
-        self._save_parsed_result(output_dir, parsed_content, anchors, section_tree)
-        
-        return paper, anchors, section_tree
-    
-    async def _parse_with_mineru(
-        self, 
-        pdf_path: str, 
-        output_dir: Path
-    ) -> Dict[str, Any]:
-        """使用MinerU解析PDF"""
         try:
-            from magic_pdf.data.data_reader_writer import FileBasedDataWriter, FileBasedDataReader
-            from magic_pdf.pipe.OCRPipe import OCRPipe
-            from magic_pdf.pipe.TXTPipe import TXTPipe
+            # 调用MinerU进行解析
+            result = await self._run_mineru(pdf_path, output_path)
+            return result
+        except Exception as e:
+            logger.error(f"PDF解析失败: {e}")
+            return ParseResult(
+                markdown_path="",
+                content_list=[],
+                figures=[],
+                tables=[],
+                equations=[],
+                metadata={},
+                success=False,
+                error=str(e)
+            )
+    
+    async def _run_mineru(self, pdf_path: Path, output_path: Path) -> ParseResult:
+        """
+        运行MinerU进行解析
+        
+        MinerU命令: magic-pdf -p {pdf_path} -o {output_path} -m auto
+        """
+        try:
+            # 尝试使用magic-pdf命令行工具
+            cmd = [
+                "magic-pdf",
+                "-p", str(pdf_path),
+                "-o", str(output_path),
+                "-m", "auto"  # 自动选择OCR或文本模式
+            ]
             
-            # 读取PDF
-            with open(pdf_path, "rb") as f:
-                pdf_bytes = f.read()
-            
-            # 创建输出目录
-            image_dir = output_dir / "images"
-            image_dir.mkdir(exist_ok=True)
-            
-            # 创建数据写入器
-            image_writer = FileBasedDataWriter(str(image_dir))
-            
-            # 使用OCR管道解析
-            pipe = OCRPipe(
-                pdf_bytes,
-                model_list=[],
-                image_writer=image_writer
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
             )
             
-            # 执行解析
-            pipe.pipe_classify()
-            pipe.pipe_analyze()
-            pipe.pipe_parse()
+            stdout, stderr = await process.communicate()
             
-            # 获取解析结果
-            content_list = pipe.pipe_mk_uni_format(str(image_dir), drop_mode="none")
-            md_content = pipe.pipe_mk_markdown(str(image_dir), drop_mode="none")
+            if process.returncode != 0:
+                # MinerU未安装或执行失败，使用备用方案
+                logger.warning(f"MinerU执行失败: {stderr.decode()}, 使用备用解析器")
+                return await self._fallback_parse(pdf_path, output_path)
             
-            # 保存Markdown
-            md_path = output_dir / "output.md"
-            with open(md_path, "w", encoding="utf-8") as f:
-                f.write(md_content)
+            # 读取解析结果
+            return self._read_mineru_output(output_path, pdf_path.stem)
             
-            # 转换为标准格式
-            return self._convert_mineru_output(content_list, image_dir)
-            
-        except Exception as e:
-            logger.error(f"MinerU解析失败: {e}")
-            return await self._parse_fallback(pdf_path, output_dir)
+        except FileNotFoundError:
+            # magic-pdf命令不存在，使用备用方案
+            logger.warning("MinerU未安装，使用备用解析器")
+            return await self._fallback_parse(pdf_path, output_path)
     
-    async def _parse_fallback(
-        self, 
-        pdf_path: str, 
-        output_dir: Path
-    ) -> Dict[str, Any]:
-        """简化的PDF解析（当MinerU不可用时）"""
+    async def _fallback_parse(self, pdf_path: Path, output_path: Path) -> ParseResult:
+        """
+        备用解析方案 - 使用PyMuPDF提取基础内容
+        """
         try:
             import fitz  # PyMuPDF
-            
-            doc = fitz.open(pdf_path)
-            
-            paragraphs = []
-            figures = []
-            sections = []
-            
-            for page_num, page in enumerate(doc, 1):
-                # 提取文本块
-                blocks = page.get_text("dict")["blocks"]
-                
-                for block in blocks:
-                    if block["type"] == 0:  # 文本块
-                        text = ""
-                        for line in block.get("lines", []):
-                            for span in line.get("spans", []):
-                                text += span.get("text", "")
-                            text += "\n"
-                        
-                        text = text.strip()
-                        if len(text) > 20:
-                            # 检测是否为标题
-                            if self._is_section_title(text, block):
-                                sections.append({
-                                    "title": text,
-                                    "page": page_num,
-                                    "level": self._detect_heading_level(block),
-                                    "bbox": block.get("bbox")
-                                })
-                            else:
-                                paragraphs.append({
-                                    "text": text,
-                                    "page": page_num,
-                                    "bbox": block.get("bbox")
-                                })
-                    
-                    elif block["type"] == 1:  # 图片块
-                        # 保存图片
-                        img_path = output_dir / "images" / f"fig_{page_num}_{len(figures)}.png"
-                        img_path.parent.mkdir(exist_ok=True)
-                        
-                        try:
-                            pix = fitz.Pixmap(doc, block.get("image"))
-                            pix.save(str(img_path))
-                            
-                            figures.append({
-                                "page": page_num,
-                                "bbox": block.get("bbox"),
-                                "image_path": str(img_path),
-                                "caption": ""  # 需要后续提取
-                            })
-                        except:
-                            pass
-            
-            doc.close()
-            
-            # 创建Markdown
-            md_content = self._create_markdown(paragraphs, sections)
-            md_path = output_dir / "output.md"
-            with open(md_path, "w", encoding="utf-8") as f:
-                f.write(md_content)
-            
-            return {
-                "paragraphs": paragraphs,
-                "sections": sections,
-                "figures": figures,
-                "tables": [],
-                "equations": [],
-                "references": []
-            }
-            
         except ImportError:
-            logger.error("PyMuPDF未安装，无法解析PDF")
-            return {
-                "paragraphs": [],
-                "sections": [],
-                "figures": [],
-                "tables": [],
-                "equations": [],
-                "references": []
-            }
-    
-    def _convert_mineru_output(
-        self, 
-        content_list: List[Dict], 
-        image_dir: Path
-    ) -> Dict[str, Any]:
-        """转换MinerU输出为标准格式"""
-        paragraphs = []
+            # 创建一个最简单的文本提取
+            return await self._simple_text_extract(pdf_path, output_path)
+        
+        doc = fitz.open(str(pdf_path))
+        
+        # 提取文本
+        markdown_content = []
         figures = []
         tables = []
         equations = []
-        sections = []
+        content_list = []
+        
+        for page_num, page in enumerate(doc, 1):
+            text = page.get_text("text")
+            markdown_content.append(f"<!-- Page {page_num} -->\n\n{text}\n\n---\n")
+            
+            # 简单的内容块
+            content_list.append({
+                "type": "text",
+                "page": page_num,
+                "content": text
+            })
+            
+            # 提取图片
+            for img_index, img in enumerate(page.get_images()):
+                xref = img[0]
+                try:
+                    pix = fitz.Pixmap(doc, xref)
+                    img_filename = f"figure_p{page_num}_{img_index}.png"
+                    img_path = output_path / "images" / img_filename
+                    img_path.parent.mkdir(parents=True, exist_ok=True)
+                    
+                    if pix.n < 5:  # GRAY or RGB
+                        pix.save(str(img_path))
+                    else:  # CMYK
+                        pix = fitz.Pixmap(fitz.csRGB, pix)
+                        pix.save(str(img_path))
+                    
+                    figures.append({
+                        "id": f"fig_{page_num}_{img_index}",
+                        "page": page_num,
+                        "path": str(img_path),
+                        "caption": ""
+                    })
+                except Exception as e:
+                    logger.warning(f"提取图片失败: {e}")
+        
+        doc.close()
+        
+        # 保存Markdown
+        md_path = output_path / f"{pdf_path.stem}.md"
+        md_content = "\n".join(markdown_content)
+        md_path.write_text(md_content, encoding="utf-8")
+        
+        # 提取元数据
+        metadata = self._extract_metadata_from_text(md_content)
+        
+        return ParseResult(
+            markdown_path=str(md_path),
+            content_list=content_list,
+            figures=figures,
+            tables=tables,
+            equations=equations,
+            metadata=metadata,
+            success=True
+        )
+    
+    async def _simple_text_extract(self, pdf_path: Path, output_path: Path) -> ParseResult:
+        """
+        最简单的文本提取 - 作为最后手段
+        """
+        try:
+            import pypdf
+            
+            reader = pypdf.PdfReader(str(pdf_path))
+            markdown_content = []
+            content_list = []
+            
+            for page_num, page in enumerate(reader.pages, 1):
+                text = page.extract_text() or ""
+                markdown_content.append(f"<!-- Page {page_num} -->\n\n{text}\n\n---\n")
+                content_list.append({
+                    "type": "text",
+                    "page": page_num,
+                    "content": text
+                })
+            
+            md_path = output_path / f"{pdf_path.stem}.md"
+            md_content = "\n".join(markdown_content)
+            md_path.write_text(md_content, encoding="utf-8")
+            
+            metadata = self._extract_metadata_from_text(md_content)
+            
+            return ParseResult(
+                markdown_path=str(md_path),
+                content_list=content_list,
+                figures=[],
+                tables=[],
+                equations=[],
+                metadata=metadata,
+                success=True
+            )
+        except Exception as e:
+            return ParseResult(
+                markdown_path="",
+                content_list=[],
+                figures=[],
+                tables=[],
+                equations=[],
+                metadata={},
+                success=False,
+                error=f"文本提取失败: {e}"
+            )
+    
+    def _read_mineru_output(self, output_path: Path, pdf_name: str) -> ParseResult:
+        """
+        读取MinerU输出结果
+        """
+        # MinerU输出结构:
+        # output_path/
+        #   pdf_name/
+        #     auto/
+        #       pdf_name.md
+        #       content_list.json
+        #       images/
+        
+        auto_path = output_path / pdf_name / "auto"
+        
+        # 读取Markdown
+        md_path = auto_path / f"{pdf_name}.md"
+        if not md_path.exists():
+            # 尝试其他可能的路径
+            for p in output_path.rglob("*.md"):
+                md_path = p
+                break
+        
+        # 读取content_list
+        content_list = []
+        content_list_path = auto_path / "content_list.json"
+        if content_list_path.exists():
+            content_list = json.loads(content_list_path.read_text(encoding="utf-8"))
+        
+        # 提取各类元素
+        figures = []
+        tables = []
+        equations = []
         
         for item in content_list:
             item_type = item.get("type", "")
-            
-            if item_type == "text":
-                paragraphs.append({
-                    "text": item.get("text", ""),
-                    "page": item.get("page_idx", 0) + 1,
-                    "bbox": item.get("bbox")
-                })
-            
-            elif item_type == "image":
-                figures.append({
-                    "page": item.get("page_idx", 0) + 1,
-                    "bbox": item.get("bbox"),
-                    "image_path": str(image_dir / item.get("img_path", "")),
-                    "caption": item.get("img_caption", "")
-                })
-            
+            if item_type == "image":
+                figures.append(item)
             elif item_type == "table":
-                tables.append({
-                    "page": item.get("page_idx", 0) + 1,
-                    "bbox": item.get("bbox"),
-                    "caption": item.get("table_caption", ""),
-                    "data": item.get("table_body")
-                })
-            
+                tables.append(item)
             elif item_type == "equation":
-                equations.append({
-                    "page": item.get("page_idx", 0) + 1,
-                    "bbox": item.get("bbox"),
-                    "latex": item.get("text", ""),
-                    "text": item.get("text", ""),
-                    "is_inline": item.get("inline", False)
-                })
-            
-            elif item_type in ["title", "section"]:
-                sections.append({
-                    "title": item.get("text", ""),
-                    "page": item.get("page_idx", 0) + 1,
-                    "level": item.get("level", 1),
-                    "bbox": item.get("bbox")
-                })
+                equations.append(item)
         
-        return {
-            "paragraphs": paragraphs,
-            "sections": sections,
-            "figures": figures,
-            "tables": tables,
-            "equations": equations,
-            "references": []
-        }
+        # 读取元数据
+        md_content = md_path.read_text(encoding="utf-8") if md_path.exists() else ""
+        metadata = self._extract_metadata_from_text(md_content)
+        
+        return ParseResult(
+            markdown_path=str(md_path) if md_path.exists() else "",
+            content_list=content_list,
+            figures=figures,
+            tables=tables,
+            equations=equations,
+            metadata=metadata,
+            success=True
+        )
     
-    def _extract_metadata(self, parsed_content: Dict[str, Any]) -> Dict[str, Any]:
-        """提取论文元数据"""
+    def _extract_metadata_from_text(self, text: str) -> Dict:
+        """
+        从文本中提取元数据
+        """
+        import re
+        
         metadata = {
             "title": "",
             "authors": [],
-            "year": None,
-            "abstract": ""
+            "abstract": "",
+            "keywords": []
         }
         
-        # 从章节中找标题
-        sections = parsed_content.get("sections", [])
-        if sections:
-            # 第一个章节可能是标题
-            first_section = sections[0]
-            if first_section.get("level", 1) == 1:
-                metadata["title"] = first_section.get("title", "")
-        
-        # 从段落中找摘要
-        paragraphs = parsed_content.get("paragraphs", [])
-        for para in paragraphs:
-            text = para.get("text", "").lower()
-            if "abstract" in text[:50]:
-                # 下一个段落可能是摘要内容
-                idx = paragraphs.index(para)
-                if idx + 1 < len(paragraphs):
-                    metadata["abstract"] = paragraphs[idx + 1].get("text", "")
+        # 尝试提取标题（通常是第一个非空行）
+        lines = text.strip().split("\n")
+        for line in lines:
+            line = line.strip()
+            if line and not line.startswith("#") and not line.startswith("<!--"):
+                metadata["title"] = line[:200]  # 限制长度
                 break
         
+        # 尝试提取摘要
+        abstract_match = re.search(
+            r'(?:Abstract|摘要)[:\s]*(.+?)(?=\n\n|\n#|Introduction|1\.|Keywords)',
+            text,
+            re.IGNORECASE | re.DOTALL
+        )
+        if abstract_match:
+            metadata["abstract"] = abstract_match.group(1).strip()[:2000]
+        
+        # 尝试提取关键词
+        keywords_match = re.search(
+            r'(?:Keywords?|关键词)[:\s]*(.+?)(?=\n\n|\n#)',
+            text,
+            re.IGNORECASE
+        )
+        if keywords_match:
+            keywords_text = keywords_match.group(1)
+            metadata["keywords"] = [
+                k.strip() 
+                for k in re.split(r'[,;，；]', keywords_text) 
+                if k.strip()
+            ][:10]
+        
         return metadata
-    
-    def _is_section_title(self, text: str, block: Dict) -> bool:
-        """判断文本是否为章节标题"""
-        # 简单启发式规则
-        if len(text) > 100:
-            return False
-        
-        # 检查是否以数字开头（如 "1. Introduction"）
-        if text[0].isdigit() and "." in text[:5]:
-            return True
-        
-        # 检查是否为全大写
-        if text.isupper() and len(text) < 50:
-            return True
-        
-        # 检查字体大小（如果有的话）
-        if block.get("lines"):
-            first_span = block["lines"][0].get("spans", [{}])[0]
-            font_size = first_span.get("size", 12)
-            if font_size > 14:
-                return True
-        
-        return False
-    
-    def _detect_heading_level(self, block: Dict) -> int:
-        """检测标题级别"""
-        # 基于字体大小判断
-        if block.get("lines"):
-            first_span = block["lines"][0].get("spans", [{}])[0]
-            font_size = first_span.get("size", 12)
-            
-            if font_size >= 18:
-                return 1
-            elif font_size >= 14:
-                return 2
-            else:
-                return 3
-        
-        return 2
-    
-    def _create_markdown(
-        self, 
-        paragraphs: List[Dict], 
-        sections: List[Dict]
-    ) -> str:
-        """创建Markdown内容"""
-        lines = []
-        
-        # 按页码排序
-        all_items = []
-        for s in sections:
-            all_items.append(("section", s))
-        for p in paragraphs:
-            all_items.append(("para", p))
-        
-        all_items.sort(key=lambda x: (x[1].get("page", 0), x[1].get("bbox", [0])[1] if x[1].get("bbox") else 0))
-        
-        for item_type, item in all_items:
-            if item_type == "section":
-                level = item.get("level", 2)
-                lines.append(f"{'#' * level} {item.get('title', '')}\n")
-            else:
-                lines.append(f"{item.get('text', '')}\n")
-        
-        return "\n".join(lines)
-    
-    def _save_parsed_result(
-        self,
-        output_dir: Path,
-        parsed_content: Dict[str, Any],
-        anchors: List[Anchor],
-        section_tree: SectionTree
-    ) -> None:
-        """保存解析结果"""
-        # 保存解析内容
-        with open(output_dir / "parsed_content.json", "w", encoding="utf-8") as f:
-            json.dump(parsed_content, f, ensure_ascii=False, indent=2)
-        
-        # 保存锚点
-        anchors_data = [a.model_dump() for a in anchors]
-        with open(output_dir / "anchors.json", "w", encoding="utf-8") as f:
-            json.dump(anchors_data, f, ensure_ascii=False, indent=2, default=str)
-        
-        # 保存章节树
-        with open(output_dir / "section_tree.json", "w", encoding="utf-8") as f:
-            json.dump(section_tree.model_dump(), f, ensure_ascii=False, indent=2)
 
+
+# 单例实例
+pdf_parser = PDFParser()
