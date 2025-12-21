@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { PDFViewer, AnchorList, EnhancePanel } from '@/components/reader';
 import { Button, Badge, Progress } from '@/components/common';
 import { cn } from '@/lib/utils';
+import { getPdfUrl } from '@/lib/api';
 import type { Paper, Anchor, Card } from '@/types';
 import {
   ChevronLeft,
@@ -251,7 +252,7 @@ export default function ReadPage() {
           {(viewMode === 'pdf' || viewMode === 'split') && (
             <div className={cn('flex-1', viewMode === 'split' && 'border-r border-gray-300')}>
               <PDFViewer
-                pdfUrl={paper.pdf_path || `/api/papers/${paperId}/pdf`}
+                pdfUrl={getPdfUrl(paperId)}
                 highlightAnchorId={selectedAnchor?.id}
                 onAnchorClick={(id) => {
                   const anchor = anchors.find(a => a.id === id);

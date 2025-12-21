@@ -2,6 +2,7 @@
 论文API端点 - 完整实现
 """
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, BackgroundTasks
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import os
@@ -199,6 +200,29 @@ async def get_paper(paper_id: str, db: Session = Depends(get_db)):
     if not paper:
         raise HTTPException(status_code=404, detail="论文不存在")
     return paper
+
+
+@router.get("/{paper_id}/pdf")
+async def get_paper_pdf(paper_id: str, db: Session = Depends(get_db)):
+    """获取论文PDF文件"""
+    paper = paper_crud.get(db, paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="论文不存在")
+    
+    if not paper.pdf_path:
+        raise HTTPException(status_code=404, detail="PDF文件路径不存在")
+    
+    # 检查文件是否存在
+    if not os.path.exists(paper.pdf_path):
+        logger.error(f"[PDF] PDF文件不存在: {paper.pdf_path}")
+        raise HTTPException(status_code=404, detail="PDF文件不存在")
+    
+    logger.info(f"[PDF] 返回PDF文件: {paper.pdf_path}")
+    return FileResponse(
+        path=paper.pdf_path,
+        media_type="application/pdf",
+        filename=f"{paper.title or 'paper'}.pdf"
+    )
 
 
 @router.get("/{paper_id}/import-status", response_model=dict)

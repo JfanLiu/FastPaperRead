@@ -18,6 +18,10 @@ import { apiLogger } from './logger';
 // API基础配置
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
+// 导出用于构建资源URL的辅助函数
+export const getApiUrl = (path: string) => `${API_BASE_URL}${path}`;
+export const getPdfUrl = (paperId: string) => `${API_BASE_URL}/papers/${paperId}/pdf`;
+
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
