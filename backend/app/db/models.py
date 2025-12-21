@@ -122,7 +122,7 @@ class AnchorModel(Base):
     ref_text = Column(Text, nullable=True)
     
     # 元数据
-    metadata = Column(JSON, default=dict)
+    anchor_metadata = Column(JSON, default=dict)
     
     # 缓存
     explanation_cache = Column(JSON, nullable=True)

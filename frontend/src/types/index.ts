@@ -202,7 +202,62 @@ export interface ImportJob {
   error_message?: string;
 }
 
-// ============ API 响应 ============
+// ============ API 请求/响应 ============
+
+export interface PaperImportRequest {
+  pdf_url: string;
+}
+
+export interface PaperImportResponse {
+  paper_id: string;
+  job_id: string;
+  message: string;
+}
+
+export interface ImportJobStatus {
+  paper_id: string;
+  job_id?: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  progress: number;
+  current_step: string;
+  error_message?: string;
+}
+
+export interface SectionTree {
+  id: string;
+  title: string;
+  level: number;
+  children: SectionTree[];
+}
+
+export interface SkimDecisionRequest {
+  decision: 'deep_read' | 'focused_read' | 'skip' | 'archive' | 'queue';
+  quality_grade?: string;
+}
+
+export interface EnhanceRequest {
+  anchor_id: string;
+  enhance_type: 'term' | 'figure' | 'equation' | 'section_summary';
+  selected_text?: string;
+  use_cache?: boolean;
+}
+
+export interface EnhanceResponse {
+  enhance_type: string;
+  anchor_id: string;
+  cached: boolean;
+  term?: TermExplanation;
+  figure?: FigureExplanation;
+  equation?: EquationExplanation;
+  summary?: string;
+}
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  skip: number;
+  limit: number;
+}
 
 export interface ApiResponse<T> {
   data: T;

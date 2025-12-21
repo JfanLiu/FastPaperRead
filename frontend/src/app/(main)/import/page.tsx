@@ -60,6 +60,8 @@ export default function ImportPage() {
         response = await paperApi.import({ pdf_url: data as string });
       }
 
+      const paperId = response.paper_id;
+
       setImportStatus({
         jobId: response.job_id,
         progress: 0,
@@ -67,37 +69,50 @@ export default function ImportPage() {
         currentStep: '初始化...',
       });
 
-      // 轮询检查进度
-      pollImportStatus(response.job_id);
+      // 轮询检查进度 (使用 paper_id)
+      pollImportStatus(paperId);
     } catch (err: unknown) {
-      setError((err as Error).message || '导入失败');
+      const errorMsg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail 
+        || (err as Error).message 
+        || '导入失败';
+      setError(errorMsg);
       setIsImporting(false);
     }
   };
 
-  const pollImportStatus = async (jobId: string) => {
-    const maxAttempts = 60; // 最多轮询60次
+  const pollImportStatus = async (paperId: string) => {
+    const maxAttempts = 120; // 最多轮询120次（2分钟）
     let attempts = 0;
 
     const poll = async () => {
       try {
-        const status = await paperApi.getImportStatus(jobId);
+        const status = await paperApi.getImportStatus(paperId);
+        
+        // 后端返回0-1，前端显示0-100
+        const progressPercent = (status.progress || 0) * 100;
         
         setImportStatus({
-          jobId,
-          progress: status.progress,
+          jobId: status.job_id || paperId,
+          progress: progressPercent,
           status: status.status,
-          currentStep: status.current_step,
+          currentStep: status.current_step || '处理中...',
         });
+
+        console.log(`[IMPORT] 状态: ${status.status}, 进度: ${progressPercent}%`);
 
         if (status.status === 'completed') {
           // 导入完成，跳转到Overview页面
+          console.log('[IMPORT] 导入完成，即将跳转...');
           setTimeout(() => {
-            router.push(`/paper/${status.paper_id}/overview`);
-          }, 1000);
+            router.push(`/paper/${paperId}/overview`);
+          }, 1500);
         } else if (status.status === 'failed') {
           setError(status.error_message || '导入失败');
           setIsImporting(false);
+        } else if (status.status === 'running' && attempts < maxAttempts) {
+          // 仍在处理中，继续轮询
+          attempts++;
+          setTimeout(poll, 1000);
         } else if (attempts < maxAttempts) {
           attempts++;
           setTimeout(poll, 1000);
@@ -106,8 +121,15 @@ export default function ImportPage() {
           setIsImporting(false);
         }
       } catch (err) {
-        setError('获取进度失败');
-        setIsImporting(false);
+        console.error('[IMPORT] 获取状态失败:', err);
+        // 如果获取状态失败，可能还在处理中，继续轮询
+        if (attempts < maxAttempts) {
+          attempts++;
+          setTimeout(poll, 1000);
+        } else {
+          setError('获取进度失败');
+          setIsImporting(false);
+        }
       }
     };
 

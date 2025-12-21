@@ -5,12 +5,31 @@ import os
 import json
 import asyncio
 import subprocess
+import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 import logging
 
 logger = logging.getLogger(__name__)
+
+# 缓存 MinerU 安装状态
+_mineru_available: Optional[bool] = None
+
+
+def check_mineru_installed() -> bool:
+    """检查MinerU是否安装"""
+    global _mineru_available
+    if _mineru_available is not None:
+        return _mineru_available
+    
+    # 检查命令是否存在
+    _mineru_available = shutil.which("magic-pdf") is not None
+    if _mineru_available:
+        logger.info("MinerU (magic-pdf) 已安装")
+    else:
+        logger.info("MinerU 未安装，将使用 PyMuPDF 备用解析器")
+    return _mineru_available
 
 
 @dataclass
@@ -40,6 +59,8 @@ class PDFParser:
     def __init__(self, output_dir: str = "./output"):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        # 启动时检查一次
+        check_mineru_installed()
     
     async def parse(self, pdf_path: str) -> ParseResult:
         """
@@ -70,8 +91,12 @@ class PDFParser:
         output_path.mkdir(parents=True, exist_ok=True)
         
         try:
-            # 调用MinerU进行解析
-            result = await self._run_mineru(pdf_path, output_path)
+            # 根据MinerU安装状态选择解析器
+            if check_mineru_installed():
+                result = await self._run_mineru(pdf_path, output_path)
+            else:
+                # 直接使用备用解析器，不等待
+                result = await self._fallback_parse(pdf_path, output_path)
             return result
         except Exception as e:
             logger.error(f"PDF解析失败: {e}")
@@ -93,13 +118,15 @@ class PDFParser:
         MinerU命令: magic-pdf -p {pdf_path} -o {output_path} -m auto
         """
         try:
-            # 尝试使用magic-pdf命令行工具
+            # 使用magic-pdf命令行工具
             cmd = [
                 "magic-pdf",
                 "-p", str(pdf_path),
                 "-o", str(output_path),
                 "-m", "auto"  # 自动选择OCR或文本模式
             ]
+            
+            logger.info(f"运行 MinerU: {' '.join(cmd)}")
             
             process = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -110,16 +137,15 @@ class PDFParser:
             stdout, stderr = await process.communicate()
             
             if process.returncode != 0:
-                # MinerU未安装或执行失败，使用备用方案
-                logger.warning(f"MinerU执行失败: {stderr.decode()}, 使用备用解析器")
+                # MinerU执行失败，使用备用方案
+                logger.warning(f"MinerU执行失败 (code={process.returncode}), 使用备用解析器")
                 return await self._fallback_parse(pdf_path, output_path)
             
             # 读取解析结果
             return self._read_mineru_output(output_path, pdf_path.stem)
             
-        except FileNotFoundError:
-            # magic-pdf命令不存在，使用备用方案
-            logger.warning("MinerU未安装，使用备用解析器")
+        except Exception as e:
+            logger.warning(f"MinerU异常: {e}, 使用备用解析器")
             return await self._fallback_parse(pdf_path, output_path)
     
     async def _fallback_parse(self, pdf_path: Path, output_path: Path) -> ParseResult:

@@ -8,6 +8,7 @@ import os
 import uuid
 import shutil
 import httpx
+import logging
 
 from ...api.deps import get_db
 from ...crud import paper_crud
@@ -16,6 +17,7 @@ from ...schemas.paper import PaperCreate, PaperUpdate, PaperInDB, PaperListRespo
 from ...config import settings
 from ...tasks import process_paper_import
 
+logger = logging.getLogger("fastpaperread.api.papers")
 router = APIRouter()
 
 
@@ -32,19 +34,26 @@ async def upload_pdf(
     - 创建论文记录
     - 触发后台解析任务
     """
+    logger.info(f"[UPLOAD] 开始上传文件: {file.filename}")
+    
     # 验证文件类型
     if not file.filename.endswith('.pdf'):
+        logger.warning(f"[UPLOAD] 文件类型错误: {file.filename}")
         raise HTTPException(status_code=400, detail="只支持PDF文件")
     
     # 生成文件路径
     file_id = str(uuid.uuid4())
     filename = f"{file_id}.pdf"
     file_path = os.path.join(settings.UPLOAD_DIR, filename)
+    logger.debug(f"[UPLOAD] 生成文件路径: {file_path}")
     
     # 保存文件
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
+    
+    file_size = os.path.getsize(file_path)
+    logger.info(f"[UPLOAD] 文件已保存: {file_path}, 大小: {file_size/1024/1024:.2f}MB")
     
     # 创建论文记录
     paper = paper_crud.create(
@@ -54,12 +63,15 @@ async def upload_pdf(
         source_value=file.filename,
         pdf_path=file_path
     )
+    logger.info(f"[UPLOAD] 论文记录已创建: paper_id={paper.id}")
     
     # 创建导入任务
     job = paper_crud.create_import_job(db, paper.id)
+    logger.info(f"[UPLOAD] 导入任务已创建: job_id={job.id}")
     
     # 触发后台解析任务
     background_tasks.add_task(process_paper_import, paper.id, file_path)
+    logger.info(f"[UPLOAD] 后台解析任务已触发: paper_id={paper.id}")
     
     return {
         "paper_id": paper.id,
@@ -153,6 +165,8 @@ async def get_all_papers(
     - 支持按状态/质量筛选
     - 支持搜索
     """
+    logger.debug(f"[LIST] 获取论文列表: skip={skip}, limit={limit}, status={status}, search={search}")
+    
     papers, total = paper_crud.get_list(
         db,
         skip=skip,
@@ -161,6 +175,8 @@ async def get_all_papers(
         quality=quality,
         search=search
     )
+    
+    logger.info(f"[LIST] 返回论文: {len(papers)}/{total}")
     
     return {
         "papers": papers,
@@ -188,16 +204,36 @@ async def get_paper(paper_id: str, db: Session = Depends(get_db)):
 @router.get("/{paper_id}/import-status", response_model=dict)
 async def get_import_status(paper_id: str, db: Session = Depends(get_db)):
     """获取导入任务状态"""
+    logger.debug(f"[IMPORT-STATUS] 查询论文状态: {paper_id}")
+    
     paper = paper_crud.get(db, paper_id)
     if not paper:
         raise HTTPException(status_code=404, detail="论文不存在")
     
-    # 查找最新的导入任务
-    # 简化实现：直接返回论文状态
+    # 将论文状态映射为导入任务状态
+    paper_status = paper.status.value if paper.status else "unknown"
+    
+    # 映射关系:
+    # importing -> running (进行中)
+    # parsing -> running (进行中)
+    # unread/skimmed/deepread/archived -> completed (已完成)
+    if paper_status in ["importing", "parsing"]:
+        job_status = "running"
+        progress = 0.5 if paper_status == "parsing" else 0.1
+        current_step = "解析PDF中..." if paper_status == "parsing" else "上传中..."
+    else:
+        job_status = "completed"
+        progress = 1.0
+        current_step = "导入完成"
+    
+    logger.info(f"[IMPORT-STATUS] paper_id={paper_id}, paper_status={paper_status}, job_status={job_status}")
+    
     return {
         "paper_id": paper_id,
-        "status": paper.status.value if paper.status else "unknown",
-        "progress": 1.0 if paper.status != PaperStatus.IMPORTING else 0.0
+        "status": job_status,  # running/completed/failed
+        "paper_status": paper_status,  # 实际论文状态
+        "progress": progress,
+        "current_step": current_step
     }
 
 

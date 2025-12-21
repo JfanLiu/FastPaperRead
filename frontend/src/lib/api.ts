@@ -13,6 +13,7 @@ import type {
   EnhanceResponse,
   PaginatedResponse,
 } from '@/types';
+import { apiLogger } from './logger';
 
 // API基础配置
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
@@ -23,6 +24,46 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 });
+
+// 请求拦截器 - 添加日志
+api.interceptors.request.use(
+  (config) => {
+    apiLogger.info(`[REQ] ${config.method?.toUpperCase()} ${config.url}`, {
+      params: config.params,
+      data: config.data instanceof FormData ? '(FormData)' : config.data
+    });
+    return config;
+  },
+  (error) => {
+    apiLogger.error('[REQ ERROR]', error);
+    return Promise.reject(error);
+  }
+);
+
+// 响应拦截器 - 添加日志
+api.interceptors.response.use(
+  (response) => {
+    apiLogger.info(`[RES] ${response.status} ${response.config.url}`, {
+      data: response.data
+    });
+    return response;
+  },
+  (error) => {
+    const status = error.response?.status;
+    const url = error.config?.url;
+    
+    // 404 是预期的（资源不存在），使用 warn 而不是 error
+    if (status === 404) {
+      apiLogger.warn(`[RES] 404 ${url} (资源不存在)`);
+    } else {
+      apiLogger.error(`[RES ERROR] ${status || 'NETWORK'} ${url}`, {
+        message: error.message,
+        response: error.response?.data
+      });
+    }
+    return Promise.reject(error);
+  }
+);
 
 // ============================================
 // 论文 API
@@ -45,9 +86,9 @@ export const paperApi = {
     return res.data;
   },
 
-  // 获取导入状态
-  getImportStatus: async (jobId: string): Promise<ImportJobStatus> => {
-    const res = await api.get(`/papers/import/${jobId}/status`);
+  // 获取导入状态 (使用paper_id而非job_id)
+  getImportStatus: async (paperId: string): Promise<ImportJobStatus> => {
+    const res = await api.get(`/papers/${paperId}/import-status`);
     return res.data;
   },
 

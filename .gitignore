@@ -63,7 +63,7 @@ Thumbs.db
 uploads/
 temp/
 output/
-*.pdf
+# *.pdf
 
 # Database
 *.db

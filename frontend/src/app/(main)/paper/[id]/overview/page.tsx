@@ -51,12 +51,16 @@ export default function OverviewPage({ params }: PageProps) {
       const anchorsResponse = await anchorApi.getByPaper(resolvedParams.id);
       setCurrentAnchors(anchorsResponse.items);
 
-      // 尝试加载已有的SkimCard
+      // 尝试加载已有的SkimCard（新论文可能还没有）
       try {
         const skim = await skimApi.get(resolvedParams.id);
         setSkimCard(skim);
-      } catch {
-        // SkimCard不存在，需要生成
+      } catch (e: unknown) {
+        // SkimCard不存在是正常的，不需要报错
+        const status = (e as { response?: { status?: number } })?.response?.status;
+        if (status !== 404) {
+          console.error('加载SkimCard失败:', e);
+        }
         setSkimCard(null);
       }
     } catch (error) {

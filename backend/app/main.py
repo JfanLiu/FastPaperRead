@@ -14,8 +14,11 @@ from .api.v1 import papers, anchors, cards, skim, enhance, compare, review, expo
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
+    import logging
+    logger = logging.getLogger("uvicorn")
+    
     # 启动时
-    print("🚀 FastPaperRead API 启动中...")
+    logger.info("FastPaperRead API starting...")
     
     # 确保目录存在
     os.makedirs(settings.TEMP_DIR, exist_ok=True)
@@ -25,12 +28,12 @@ async def lifespan(app: FastAPI):
     # 初始化数据库
     from .db.base import init_db
     init_db()
-    print("✅ 数据库初始化完成")
+    logger.info("Database initialized")
     
     yield
     
     # 关闭时
-    print("👋 FastPaperRead API 关闭")
+    logger.info("FastPaperRead API shutting down")
 
 
 # 创建应用

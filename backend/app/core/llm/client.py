@@ -22,14 +22,20 @@ class LLMClient:
         self.api_key = api_key or settings.LLM_API_KEY
         self.base_url = base_url or settings.LLM_BASE_URL
         self.model = model or settings.LLM_MODEL
+        self.client = None
         
         if not self.api_key:
-            logger.warning("LLM API key not configured")
-        
-        self.client = AsyncOpenAI(
-            api_key=self.api_key,
-            base_url=self.base_url
-        )
+            logger.warning("LLM API key not configured - LLM features will be disabled")
+        else:
+            logger.info(f"LLM configured: model={self.model}, base_url={self.base_url}")
+            self.client = AsyncOpenAI(
+                api_key=self.api_key,
+                base_url=self.base_url
+            )
+    
+    def is_available(self) -> bool:
+        """检查LLM是否可用"""
+        return self.client is not None
     
     async def chat(
         self,
@@ -49,6 +55,9 @@ class LLMClient:
         Returns:
             LLM生成的文本
         """
+        if not self.is_available():
+            raise ValueError("LLM API key not configured. Please set LLM_API_KEY in .env file.")
+        
         try:
             response = await self.client.chat.completions.create(
                 model=self.model,

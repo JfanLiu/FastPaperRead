@@ -24,6 +24,11 @@ python-dotenv>=1.0.0
 httpx>=0.26.0
 aiofiles>=23.2.0
 
+# PDF Parsing (fallback)
+pymupdf>=1.23.0
+pypdf>=3.17.0
+
 # Development
 pytest>=7.4.0
 pytest-asyncio>=0.23.0
+httpx>=0.26.0  # For TestClient
