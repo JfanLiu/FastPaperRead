@@ -1,0 +1,40 @@
+# FastAPI & Web
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+aiofiles==23.2.1
+
+# Pydantic
+pydantic==2.6.0
+pydantic-settings==2.1.0
+
+# Database (后续启用)
+# sqlalchemy==2.0.25
+# alembic==1.13.1
+# asyncpg==0.29.0  # PostgreSQL async driver
+
+# Redis (后续启用)
+# redis==5.0.1
+# celery==5.3.4
+
+# LLM
+openai==1.10.0
+httpx==0.26.0
+
+# Search
+tavily-python==0.3.0
+
+# PDF Processing
+# magic-pdf  # MinerU - 需要单独安装
+PyMuPDF==1.23.8
+
+# Utilities
+python-dotenv==1.0.0
+requests==2.31.0
+
+# Development
+pytest==7.4.4
+pytest-asyncio==0.23.3
+black==24.1.0
+isort==5.13.2
+
