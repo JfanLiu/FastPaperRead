@@ -7,12 +7,14 @@ from typing import List, Optional
 import os
 import uuid
 import shutil
+import httpx
 
 from ...api.deps import get_db
 from ...crud import paper_crud
 from ...db.models import PaperStatus
 from ...schemas.paper import PaperCreate, PaperUpdate, PaperInDB, PaperListResponse
 from ...config import settings
+from ...tasks import process_paper_import
 
 router = APIRouter()
 
@@ -57,7 +59,7 @@ async def upload_pdf(
     job = paper_crud.create_import_job(db, paper.id)
     
     # 触发后台解析任务
-    # background_tasks.add_task(parse_pdf_task, paper.id, file_path, db)
+    background_tasks.add_task(process_paper_import, paper.id, file_path)
     
     return {
         "paper_id": paper.id,
@@ -69,28 +71,64 @@ async def upload_pdf(
 @router.post("/import", response_model=dict)
 async def import_paper_from_url(
     url: str,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """
     从URL导入论文（arXiv/DOI/URL）
+    
+    支持:
+    - PDF直链
+    - arXiv链接 (自动转换为PDF链接)
+    - DOI链接 (尝试获取PDF)
     """
     # 解析URL类型
     source_type = "url"
+    pdf_url = url
+    
     if "arxiv.org" in url:
         source_type = "arxiv"
+        # 转换arXiv链接为PDF链接
+        if "/abs/" in url:
+            pdf_url = url.replace("/abs/", "/pdf/") + ".pdf"
+        elif not url.endswith(".pdf"):
+            pdf_url = url + ".pdf"
     elif "doi.org" in url:
         source_type = "doi"
+        # DOI需要特殊处理，暂时保留原链接
+    
+    # 下载PDF
+    file_id = str(uuid.uuid4())
+    filename = f"{file_id}.pdf"
+    file_path = os.path.join(settings.UPLOAD_DIR, filename)
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
+            response = await client.get(pdf_url, headers={
+                "User-Agent": "Mozilla/5.0 (compatible; FastPaperRead/1.0)"
+            })
+            response.raise_for_status()
+            
+            with open(file_path, "wb") as f:
+                f.write(response.content)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"下载PDF失败: {str(e)}")
     
     # 创建论文记录
     paper = paper_crud.create(
         db,
         title=f"Importing from {url}",
         source_type=source_type,
-        source_value=url
+        source_value=url,
+        pdf_path=file_path
     )
     
     # 创建导入任务
     job = paper_crud.create_import_job(db, paper.id)
+    
+    # 触发后台解析任务
+    background_tasks.add_task(process_paper_import, paper.id, file_path)
     
     return {
         "paper_id": paper.id,

@@ -1,11 +1,16 @@
 """
-卡片API路由
+卡片API路由 - 完整实现
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from sqlalchemy.orm import Session
 from typing import Optional, List
 from datetime import datetime
 import uuid
 
+from ...api.deps import get_db, get_enhancer
+from ...crud import card_crud, anchor_crud, paper_crud
+from ...db.models import CardType
+from ...core.llm import ContentEnhancer
 from ...schemas.card import (
     CardCreate, CardUpdate, CardResponse, CardListResponse,
     CardFromAnchorRequest, CardSearchRequest
@@ -13,157 +18,329 @@ from ...schemas.card import (
 
 router = APIRouter()
 
-# 临时存储
-_cards_db = {}
+
+def card_to_response(card) -> dict:
+    """转换卡片模型为响应格式"""
+    return {
+        "id": card.id,
+        "paper_id": card.paper_id,
+        "type": card.type.value if hasattr(card.type, 'value') else card.type,
+        "title": card.title,
+        "content": card.content,
+        "source_anchor_ids": card.source_anchor_ids or [],
+        "uncertainty": card.uncertainty or "from_text",
+        "tags": card.tags or [],
+        "status": card.status or "draft",
+        "version": card.version or 1,
+        "created_at": card.created_at,
+        "updated_at": card.updated_at,
+        # 特定类型字段
+        "one_line_summary": card.one_line_summary,
+        "contributions": card.contributions,
+        "limitations": card.limitations,
+        "applicable_scope": card.applicable_scope,
+        "claim": card.claim,
+        "evidence": card.evidence,
+        "evidence_strength": card.evidence_strength,
+        "alternative_explanations": card.alternative_explanations,
+        "risks": card.risks,
+        "method_name": card.method_name,
+        "inputs": card.inputs,
+        "outputs": card.outputs,
+        "assumptions": card.assumptions,
+        "process": card.process,
+        "pseudocode": card.pseudocode,
+        "complexity": card.complexity,
+    }
 
 
-@router.post("", response_model=CardResponse)
-async def create_card(card: CardCreate):
+@router.post("", response_model=dict)
+async def create_card(
+    card: CardCreate,
+    db: Session = Depends(get_db)
+):
     """创建卡片"""
-    card_id = str(uuid.uuid4())
-    now = datetime.now()
+    try:
+        card_type = CardType(card.type) if isinstance(card.type, str) else card.type
+    except ValueError:
+        card_type = CardType.NOTE
     
-    card_data = card.model_dump()
-    card_data.update({
-        "id": card_id,
-        "status": "draft",
-        "version": 1,
-        "created_at": now,
-        "updated_at": now
-    })
+    new_card = card_crud.create(
+        db,
+        paper_id=card.paper_id,
+        type=card_type,
+        title=card.title,
+        content=card.content or "",
+        source_anchor_ids=card.source_anchor_ids,
+        uncertainty=card.uncertainty,
+        tags=card.tags,
+        one_line_summary=getattr(card, 'one_line_summary', None),
+        contributions=getattr(card, 'contributions', None),
+        limitations=getattr(card, 'limitations', None),
+        applicable_scope=getattr(card, 'applicable_scope', None),
+        claim=getattr(card, 'claim', None),
+        evidence=getattr(card, 'evidence', None),
+        evidence_strength=getattr(card, 'evidence_strength', None),
+        alternative_explanations=getattr(card, 'alternative_explanations', None),
+        risks=getattr(card, 'risks', None),
+        method_name=getattr(card, 'method_name', None),
+        inputs=getattr(card, 'inputs', None),
+        outputs=getattr(card, 'outputs', None),
+        assumptions=getattr(card, 'assumptions', None),
+        process=getattr(card, 'process', None),
+        pseudocode=getattr(card, 'pseudocode', None),
+        complexity=getattr(card, 'complexity', None),
+    )
     
-    _cards_db[card_id] = card_data
-    return card_data
+    return card_to_response(new_card)
 
 
-@router.post("/from-anchor", response_model=CardResponse)
-async def create_card_from_anchor(request: CardFromAnchorRequest):
-    """从锚点创建卡片"""
-    # TODO: 获取锚点内容
-    # TODO: 如果auto_generate，调用LLM生成内容
+@router.post("/from-anchor", response_model=dict)
+async def create_card_from_anchor(
+    request: CardFromAnchorRequest,
+    db: Session = Depends(get_db),
+    enhancer: ContentEnhancer = Depends(get_enhancer)
+):
+    """从锚点创建卡片，支持自动生成内容"""
+    anchor = anchor_crud.get(db, request.anchor_id)
+    if not anchor:
+        raise HTTPException(404, "锚点不存在")
     
-    card_id = str(uuid.uuid4())
-    now = datetime.now()
+    try:
+        card_type = CardType(request.card_type)
+    except ValueError:
+        card_type = CardType.NOTE
     
+    # 准备卡片数据
     card_data = {
-        "id": card_id,
-        "paper_id": "",  # 从锚点获取
-        "type": request.card_type,
-        "title": "新卡片",
-        "content": "",
+        "paper_id": anchor.paper_id,
+        "type": card_type,
+        "title": f"从{anchor.type.value if hasattr(anchor.type, 'value') else anchor.type}创建的卡片",
+        "content": anchor.text or anchor.caption or "",
         "source_anchor_ids": [request.anchor_id],
         "uncertainty": "from_text",
         "tags": [],
-        "status": "draft",
-        "version": 1,
-        "created_at": now,
-        "updated_at": now
     }
     
-    _cards_db[card_id] = card_data
-    return card_data
+    # 如果需要自动生成
+    if request.auto_generate:
+        context = anchor.text or anchor.caption or ""
+        
+        try:
+            if card_type == CardType.PAPER:
+                result = await enhancer.generate_paper_card(context)
+                card_data.update({
+                    "title": result.get("one_line_summary", card_data["title"])[:200],
+                    "one_line_summary": result.get("one_line_summary", ""),
+                    "contributions": result.get("contributions", []),
+                    "limitations": result.get("limitations", []),
+                    "applicable_scope": result.get("applicable_scope", ""),
+                })
+                
+            elif card_type == CardType.EVIDENCE:
+                result = await enhancer.generate_evidence_card(context)
+                card_data.update({
+                    "title": (result.get("claim", "") or "证据卡片")[:200],
+                    "claim": result.get("claim", ""),
+                    "evidence": result.get("evidence", ""),
+                    "evidence_strength": result.get("evidence_strength", "medium"),
+                    "alternative_explanations": result.get("alternative_explanations", []),
+                    "risks": result.get("risks", []),
+                })
+                
+            elif card_type == CardType.METHOD:
+                result = await enhancer.generate_method_card(context)
+                card_data.update({
+                    "title": result.get("method_name", "方法卡片")[:200],
+                    "method_name": result.get("method_name", ""),
+                    "inputs": result.get("inputs", []),
+                    "outputs": result.get("outputs", []),
+                    "assumptions": result.get("assumptions", []),
+                    "process": result.get("process", ""),
+                    "pseudocode": result.get("pseudocode", ""),
+                    "complexity": result.get("complexity", ""),
+                })
+        except Exception as e:
+            # 生成失败，使用基础内容
+            card_data["content"] = f"自动生成失败: {str(e)}\n\n原文:\n{context}"
+    
+    # 创建卡片
+    new_card = card_crud.create(db, **card_data)
+    
+    return card_to_response(new_card)
 
 
-@router.get("/paper/{paper_id}", response_model=CardListResponse)
+@router.get("/paper/{paper_id}", response_model=dict)
 async def get_paper_cards(
     paper_id: str,
-    type: Optional[str] = None
+    type: Optional[str] = None,
+    db: Session = Depends(get_db)
 ):
     """获取论文的所有卡片"""
-    cards = [c for c in _cards_db.values() if c.get("paper_id") == paper_id]
+    cards = card_crud.get_by_paper(db, paper_id, type=type)
+    by_type = card_crud.count_by_type(db, paper_id)
     
-    if type:
-        cards = [c for c in cards if c.get("type") == type]
-    
-    # 统计
-    by_type = {}
-    for c in cards:
-        t = c.get("type", "unknown")
-        by_type[t] = by_type.get(t, 0) + 1
-    
-    return CardListResponse(
-        items=cards,
-        total=len(cards),
-        by_type=by_type
-    )
+    return {
+        "items": [card_to_response(c) for c in cards],
+        "total": len(cards),
+        "by_type": by_type
+    }
 
 
-@router.get("/{card_id}", response_model=CardResponse)
-async def get_card(card_id: str):
+@router.get("/{card_id}", response_model=dict)
+async def get_card(
+    card_id: str,
+    db: Session = Depends(get_db)
+):
     """获取卡片详情"""
-    if card_id not in _cards_db:
+    card = card_crud.get(db, card_id)
+    if not card:
         raise HTTPException(404, "卡片不存在")
     
-    return _cards_db[card_id]
+    return card_to_response(card)
 
 
-@router.put("/{card_id}", response_model=CardResponse)
-async def update_card(card_id: str, update: CardUpdate):
+@router.put("/{card_id}", response_model=dict)
+async def update_card(
+    card_id: str,
+    update: CardUpdate,
+    db: Session = Depends(get_db)
+):
     """更新卡片"""
-    if card_id not in _cards_db:
+    update_data = update.model_dump(exclude_unset=True)
+    
+    card = card_crud.update(db, card_id, **update_data)
+    if not card:
         raise HTTPException(404, "卡片不存在")
     
-    card = _cards_db[card_id]
-    update_data = update.model_dump(exclude_unset=True)
-    card.update(update_data)
-    card["updated_at"] = datetime.now()
-    card["version"] = card.get("version", 1) + 1
-    
-    return card
+    return card_to_response(card)
 
 
 @router.delete("/{card_id}")
-async def delete_card(card_id: str):
+async def delete_card(
+    card_id: str,
+    db: Session = Depends(get_db)
+):
     """删除卡片"""
-    if card_id not in _cards_db:
+    success = card_crud.delete(db, card_id)
+    if not success:
         raise HTTPException(404, "卡片不存在")
     
-    del _cards_db[card_id]
     return {"message": "卡片已删除"}
 
 
-@router.post("/search", response_model=CardListResponse)
-async def search_cards(request: CardSearchRequest):
+@router.post("/search", response_model=dict)
+async def search_cards(
+    request: CardSearchRequest,
+    db: Session = Depends(get_db)
+):
     """搜索卡片"""
-    cards = list(_cards_db.values())
-    
-    # 过滤
-    if request.types:
-        cards = [c for c in cards if c.get("type") in request.types]
-    if request.tags:
-        cards = [c for c in cards if any(t in c.get("tags", []) for t in request.tags)]
-    if request.paper_ids:
-        cards = [c for c in cards if c.get("paper_id") in request.paper_ids]
-    if request.status:
-        cards = [c for c in cards if c.get("status") == request.status]
-    
-    # 关键词搜索
-    query_lower = request.query.lower()
-    cards = [
-        c for c in cards 
-        if query_lower in c.get("title", "").lower() or 
-           query_lower in c.get("content", "").lower()
-    ]
-    
-    # 分页
-    total = len(cards)
-    cards = cards[request.offset:request.offset + request.limit]
-    
-    return CardListResponse(
-        items=cards,
-        total=total,
-        by_type={}
+    cards, total = card_crud.search(
+        db,
+        query=request.query,
+        types=request.types,
+        tags=request.tags,
+        paper_ids=request.paper_ids,
+        status=request.status,
+        skip=request.offset,
+        limit=request.limit
     )
+    
+    by_type = card_crud.count_by_type(db)
+    
+    return {
+        "items": [card_to_response(c) for c in cards],
+        "total": total,
+        "by_type": by_type
+    }
 
 
 @router.put("/{card_id}/finalize")
-async def finalize_card(card_id: str):
+async def finalize_card(
+    card_id: str,
+    db: Session = Depends(get_db)
+):
     """将卡片标记为定稿"""
-    if card_id not in _cards_db:
+    card = card_crud.finalize(db, card_id)
+    if not card:
         raise HTTPException(404, "卡片不存在")
     
-    _cards_db[card_id]["status"] = "final"
-    _cards_db[card_id]["updated_at"] = datetime.now()
-    
-    return {"message": "卡片已定稿"}
+    return {"message": "卡片已定稿", "card_id": card_id}
 
+
+@router.post("/batch-create", response_model=dict)
+async def batch_create_cards(
+    paper_id: str,
+    card_types: List[str],
+    db: Session = Depends(get_db),
+    enhancer: ContentEnhancer = Depends(get_enhancer)
+):
+    """批量创建卡片（基于论文内容）"""
+    paper = paper_crud.get(db, paper_id)
+    if not paper:
+        raise HTTPException(404, "论文不存在")
+    
+    content = paper.abstract or ""
+    if paper.markdown_path:
+        try:
+            with open(paper.markdown_path, 'r', encoding='utf-8') as f:
+                content = f.read()[:8000]
+        except:
+            pass
+    
+    created_cards = []
+    
+    for card_type_str in card_types:
+        try:
+            card_type = CardType(card_type_str)
+        except ValueError:
+            continue
+        
+        card_data = {
+            "paper_id": paper_id,
+            "type": card_type,
+            "title": f"{paper.title}的{card_type_str}卡片",
+            "content": "",
+            "source_anchor_ids": [],
+        }
+        
+        try:
+            if card_type == CardType.PAPER:
+                result = await enhancer.generate_paper_card(content)
+                card_data.update({
+                    "title": result.get("one_line_summary", card_data["title"])[:200],
+                    "one_line_summary": result.get("one_line_summary", ""),
+                    "contributions": result.get("contributions", []),
+                    "limitations": result.get("limitations", []),
+                    "applicable_scope": result.get("applicable_scope", ""),
+                })
+            elif card_type == CardType.EVIDENCE:
+                result = await enhancer.generate_evidence_card(content)
+                card_data.update({
+                    "title": (result.get("claim", "") or "证据卡片")[:200],
+                    "claim": result.get("claim", ""),
+                    "evidence": result.get("evidence", ""),
+                    "evidence_strength": result.get("evidence_strength", "medium"),
+                    "alternative_explanations": result.get("alternative_explanations", []),
+                    "risks": result.get("risks", []),
+                })
+            elif card_type == CardType.METHOD:
+                result = await enhancer.generate_method_card(content)
+                card_data.update({
+                    "title": result.get("method_name", "方法卡片")[:200],
+                    "method_name": result.get("method_name", ""),
+                    "inputs": result.get("inputs", []),
+                    "outputs": result.get("outputs", []),
+                    "assumptions": result.get("assumptions", []),
+                    "process": result.get("process", ""),
+                })
+        except Exception as e:
+            card_data["content"] = f"生成失败: {str(e)}"
+        
+        new_card = card_crud.create(db, **card_data)
+        created_cards.append(card_to_response(new_card))
+    
+    return {
+        "created": len(created_cards),
+        "cards": created_cards
+    }

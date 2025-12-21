@@ -103,6 +103,15 @@ class LLMClient:
         messages.append({"role": "user", "content": prompt})
         
         return await self.chat(messages, **kwargs)
+    
+    # 别名方法，保持向后兼容
+    async def chat_completion(
+        self,
+        messages: List[Dict[str, str]],
+        **kwargs
+    ) -> str:
+        """chat_completion 是 chat 的别名"""
+        return await self.chat(messages, **kwargs)
 
 
 # 全局客户端实例

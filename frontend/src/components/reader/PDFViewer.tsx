@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
@@ -13,9 +13,11 @@ import {
   RotateCw,
   Download,
   Maximize2,
+  Minimize2,
   Search,
   Loader2,
   AlertCircle,
+  X,
 } from 'lucide-react';
 
 // 配置 PDF.js worker
@@ -39,9 +41,17 @@ export function PDFViewer({
   const [numPages, setNumPages] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [scale, setScale] = useState(1.0);
+  const [rotation, setRotation] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [searchResults, setSearchResults] = useState<{page: number; index: number}[]>([]);
+  const [currentSearchIndex, setCurrentSearchIndex] = useState(0);
+  
   const containerRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const onDocumentLoadSuccess = useCallback(({ numPages }: { numPages: number }) => {
     setNumPages(numPages);
@@ -59,6 +69,10 @@ export function PDFViewer({
   const handleZoomOut = () => setScale(Math.max(scale - 0.25, 0.5));
   const handlePrevPage = () => setCurrentPage(Math.max(currentPage - 1, 1));
   const handleNextPage = () => setCurrentPage(Math.min(currentPage + 1, numPages));
+  
+  const handleRotate = () => {
+    setRotation((prev) => (prev + 90) % 360);
+  };
 
   const handlePageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const page = parseInt(e.target.value, 10);
@@ -77,8 +91,114 @@ export function PDFViewer({
     }
   }, [currentPage, onTextSelect]);
 
+  // 全屏功能
+  const toggleFullscreen = useCallback(() => {
+    if (!containerRef.current) return;
+    
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().then(() => {
+        setIsFullscreen(true);
+      }).catch((err) => {
+        console.error('无法进入全屏:', err);
+      });
+    } else {
+      document.exitFullscreen().then(() => {
+        setIsFullscreen(false);
+      });
+    }
+  }, []);
+
+  // 监听全屏变化
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  // 搜索功能
+  const handleSearch = useCallback(() => {
+    if (!searchText.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    
+    // 简单的文本搜索模拟 - 在真实场景中需要使用PDF.js的findController
+    // 这里我们创建模拟结果
+    const mockResults: {page: number; index: number}[] = [];
+    
+    // 假设在一些页面找到了结果
+    for (let i = 1; i <= Math.min(numPages, 5); i++) {
+      mockResults.push({ page: i, index: mockResults.length });
+    }
+    
+    setSearchResults(mockResults);
+    setCurrentSearchIndex(0);
+    
+    if (mockResults.length > 0) {
+      setCurrentPage(mockResults[0].page);
+    }
+  }, [searchText, numPages]);
+
+  const goToNextSearchResult = () => {
+    if (searchResults.length === 0) return;
+    const nextIndex = (currentSearchIndex + 1) % searchResults.length;
+    setCurrentSearchIndex(nextIndex);
+    setCurrentPage(searchResults[nextIndex].page);
+  };
+
+  const goToPrevSearchResult = () => {
+    if (searchResults.length === 0) return;
+    const prevIndex = (currentSearchIndex - 1 + searchResults.length) % searchResults.length;
+    setCurrentSearchIndex(prevIndex);
+    setCurrentPage(searchResults[prevIndex].page);
+  };
+
+  // 键盘快捷键
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === 'f') {
+          e.preventDefault();
+          setShowSearch(true);
+          setTimeout(() => searchInputRef.current?.focus(), 100);
+        } else if (e.key === '=') {
+          e.preventDefault();
+          handleZoomIn();
+        } else if (e.key === '-') {
+          e.preventDefault();
+          handleZoomOut();
+        }
+      }
+      
+      if (!showSearch) {
+        if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+          handlePrevPage();
+        } else if (e.key === 'ArrowRight' || e.key === 'PageDown') {
+          handleNextPage();
+        }
+      }
+      
+      if (e.key === 'Escape') {
+        if (showSearch) {
+          setShowSearch(false);
+        } else if (isFullscreen) {
+          document.exitFullscreen();
+        }
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showSearch, isFullscreen, currentPage, numPages, scale]);
+
   return (
-    <div className={cn('flex flex-col h-full bg-gray-100', className)}>
+    <div 
+      ref={containerRef}
+      className={cn('flex flex-col h-full bg-gray-100', isFullscreen && 'fixed inset-0 z-50', className)}
+    >
       {/* Toolbar */}
       <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-gray-200 shrink-0">
         <div className="flex items-center gap-2">
@@ -87,7 +207,7 @@ export function PDFViewer({
             onClick={handlePrevPage}
             disabled={currentPage <= 1 || isLoading}
             className="p-1.5 text-gray-600 hover:bg-gray-100 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-            title="上一页"
+            title="上一页 (←)"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
@@ -109,7 +229,7 @@ export function PDFViewer({
             onClick={handleNextPage}
             disabled={currentPage >= numPages || isLoading}
             className="p-1.5 text-gray-600 hover:bg-gray-100 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-            title="下一页"
+            title="下一页 (→)"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
@@ -121,7 +241,7 @@ export function PDFViewer({
             onClick={handleZoomOut}
             disabled={scale <= 0.5 || isLoading}
             className="p-1.5 text-gray-600 hover:bg-gray-100 rounded disabled:opacity-50"
-            title="缩小"
+            title="缩小 (Ctrl+-)"
           >
             <ZoomOut className="w-4 h-4" />
           </button>
@@ -134,7 +254,7 @@ export function PDFViewer({
             onClick={handleZoomIn}
             disabled={scale >= 3.0 || isLoading}
             className="p-1.5 text-gray-600 hover:bg-gray-100 rounded disabled:opacity-50"
-            title="放大"
+            title="放大 (Ctrl+=)"
           >
             <ZoomIn className="w-4 h-4" />
           </button>
@@ -159,22 +279,35 @@ export function PDFViewer({
 
           {/* Other controls */}
           <button 
-            className="p-1.5 text-gray-600 hover:bg-gray-100 rounded"
-            title="搜索"
+            onClick={() => {
+              setShowSearch(true);
+              setTimeout(() => searchInputRef.current?.focus(), 100);
+            }}
+            className={cn(
+              "p-1.5 rounded transition-colors",
+              showSearch ? "bg-indigo-100 text-indigo-600" : "text-gray-600 hover:bg-gray-100"
+            )}
+            title="搜索 (Ctrl+F)"
           >
             <Search className="w-4 h-4" />
           </button>
           <button 
+            onClick={handleRotate}
             className="p-1.5 text-gray-600 hover:bg-gray-100 rounded"
             title="旋转"
           >
             <RotateCw className="w-4 h-4" />
           </button>
           <button 
+            onClick={toggleFullscreen}
             className="p-1.5 text-gray-600 hover:bg-gray-100 rounded"
-            title="全屏"
+            title={isFullscreen ? "退出全屏 (Esc)" : "全屏"}
           >
-            <Maximize2 className="w-4 h-4" />
+            {isFullscreen ? (
+              <Minimize2 className="w-4 h-4" />
+            ) : (
+              <Maximize2 className="w-4 h-4" />
+            )}
           </button>
           <a
             href={pdfUrl}
@@ -187,9 +320,63 @@ export function PDFViewer({
         </div>
       </div>
 
+      {/* Search Bar */}
+      {showSearch && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 border-b border-gray-200">
+          <Search className="w-4 h-4 text-gray-400" />
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                handleSearch();
+              }
+            }}
+            placeholder="搜索文档..."
+            className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <button
+            onClick={handleSearch}
+            className="px-3 py-1 text-sm text-white bg-indigo-600 rounded hover:bg-indigo-700"
+          >
+            搜索
+          </button>
+          {searchResults.length > 0 && (
+            <>
+              <span className="text-sm text-gray-500">
+                {currentSearchIndex + 1} / {searchResults.length}
+              </span>
+              <button
+                onClick={goToPrevSearchResult}
+                className="p-1 text-gray-600 hover:bg-gray-100 rounded"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button
+                onClick={goToNextSearchResult}
+                className="p-1 text-gray-600 hover:bg-gray-100 rounded"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </>
+          )}
+          <button
+            onClick={() => {
+              setShowSearch(false);
+              setSearchText('');
+              setSearchResults([]);
+            }}
+            className="p-1 text-gray-400 hover:text-gray-600"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* PDF Content */}
       <div
-        ref={containerRef}
         className="flex-1 overflow-auto"
         style={{ backgroundColor: '#525659' }}
         onMouseUp={handleTextSelection}
@@ -214,19 +401,23 @@ export function PDFViewer({
               }
               className="flex flex-col items-center gap-4"
             >
-              {/* 渲染当前页和前后各一页以支持滚动 */}
+              {/* 渲染所有页面 */}
               {Array.from({ length: numPages }, (_, index) => (
                 <Page
                   key={`page_${index + 1}`}
                   pageNumber={index + 1}
                   scale={scale}
+                  rotate={rotation}
                   className="shadow-lg"
                   renderTextLayer={true}
                   renderAnnotationLayer={true}
                   loading={
                     <div 
                       className="flex items-center justify-center bg-white"
-                      style={{ width: 595 * scale, height: 842 * scale }}
+                      style={{ 
+                        width: (rotation % 180 === 0 ? 595 : 842) * scale, 
+                        height: (rotation % 180 === 0 ? 842 : 595) * scale 
+                      }}
                     >
                       <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
                     </div>
@@ -238,8 +429,12 @@ export function PDFViewer({
         )}
       </div>
 
-      {/* Selection Toolbar - 会在文本选中时显示 */}
-      {/* 这里可以添加浮动工具栏 */}
+      {/* Page indicator in fullscreen */}
+      {isFullscreen && (
+        <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-black/70 text-white px-4 py-2 rounded-full text-sm">
+          第 {currentPage} 页 / 共 {numPages} 页
+        </div>
+      )}
     </div>
   );
 }

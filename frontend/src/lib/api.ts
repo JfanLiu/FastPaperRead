@@ -288,5 +288,129 @@ export const exportApi = {
   },
 };
 
+// ============================================
+// 复现清单 API
+// ============================================
+
+export const checklistApi = {
+  // 获取清单模板
+  getTemplates: async () => {
+    const res = await api.get('/checklist/templates');
+    return res.data;
+  },
+
+  // 生成清单
+  generate: async (paperId: string, templateId: string = 'ml_reproducibility') => {
+    const res = await api.post(`/checklist/${paperId}/generate`, null, {
+      params: { template_id: templateId }
+    });
+    return res.data;
+  },
+
+  // 获取清单
+  get: async (paperId: string) => {
+    const res = await api.get(`/checklist/${paperId}`);
+    return res.data;
+  },
+
+  // 更新清单项
+  updateItem: async (paperId: string, itemId: string, data: {
+    found?: boolean;
+    note?: string;
+    inferred_value?: string;
+  }) => {
+    const res = await api.put(`/checklist/${paperId}/item/${itemId}`, null, { params: data });
+    return res.data;
+  },
+
+  // 设置判定
+  setVerdict: async (paperId: string, verdict: string) => {
+    const res = await api.post(`/checklist/${paperId}/verdict`, null, { params: { verdict } });
+    return res.data;
+  },
+};
+
+// ============================================
+// 对比 API
+// ============================================
+
+export const compareApi = {
+  // 创建对比集合
+  createSet: async (name: string, paperIds: string[]) => {
+    const res = await api.post('/compare/sets', { name, paper_ids: paperIds });
+    return res.data;
+  },
+
+  // 获取对比集合
+  getSet: async (setId: string) => {
+    const res = await api.get(`/compare/sets/${setId}`);
+    return res.data;
+  },
+
+  // 生成对比矩阵
+  generateMatrix: async (setId: string, dimensions?: string[]) => {
+    const res = await api.post(`/compare/sets/${setId}/matrix`, { dimensions });
+    return res.data;
+  },
+
+  // 快速对比
+  quickCompare: async (paperIds: string[], dimensions?: string[]) => {
+    const res = await api.post('/compare/quick-compare', null, {
+      params: { paper_ids: paperIds, dimensions }
+    });
+    return res.data;
+  },
+};
+
+// ============================================
+// 审稿 API
+// ============================================
+
+export const reviewApi = {
+  // 生成审稿草稿
+  generateDraft: async (paperId: string) => {
+    const res = await api.post(`/review/${paperId}/draft`);
+    return res.data;
+  },
+
+  // 获取审稿草稿
+  getDraft: async (paperId: string) => {
+    const res = await api.get(`/review/${paperId}/draft`);
+    return res.data;
+  },
+
+  // 提交审稿反馈
+  submitFeedback: async (paperId: string, feedback: {
+    novelty_score: number;
+    novelty_reason: string;
+    soundness_score: number;
+    soundness_reason: string;
+    clarity_score: number;
+    clarity_reason: string;
+    significance_score: number;
+    significance_reason: string;
+    reproducibility_score: number;
+    reproducibility_reason: string;
+    overall_recommendation: string;
+    questions: string[];
+    minor_issues: string[];
+  }) => {
+    const res = await api.post(`/review/${paperId}/feedback`, feedback);
+    return res.data;
+  },
+
+  // 导出审稿意见
+  exportReview: async (paperId: string, format: string = 'markdown') => {
+    const res = await api.get(`/review/${paperId}/export-review`, { params: { format } });
+    return res.data;
+  },
+
+  // 获取评分标准
+  getRubric: async (paperId: string) => {
+    const res = await api.get(`/review/${paperId}/rubric`);
+    return res.data;
+  },
+};
+
 export default api;
 
