@@ -66,10 +66,10 @@ const initialState = {
 
 export const usePaperStore = create<PaperState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       ...initialState,
 
-      setPapers: (papers, total) => set({ papers, totalPapers: total }),
+      setPapers: (papers, total) => set({ papers: papers || [], totalPapers: total }),
       
       addPaper: (paper) => set((state) => ({
         papers: [paper, ...state.papers],

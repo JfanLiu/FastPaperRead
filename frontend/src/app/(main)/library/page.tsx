@@ -24,9 +24,12 @@ import {
 import type { Paper } from '@/types';
 
 export default function LibraryPage() {
-  const { papers, totalPapers, filters, setPapers, setFilters, setLoading, isLoading } = usePaperStore();
+  const { papers: storePapers, totalPapers, filters, setPapers, setFilters, setLoading, isLoading } = usePaperStore();
   const { libraryViewMode, setLibraryViewMode, openImportModal } = useUIStore();
   const [selectedPapers, setSelectedPapers] = useState<string[]>([]);
+  
+  // 确保 papers 是数组
+  const papers = storePapers || [];
 
   useEffect(() => {
     loadPapers();
