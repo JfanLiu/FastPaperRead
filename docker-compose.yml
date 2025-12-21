@@ -1,0 +1,107 @@
+version: '3.8'
+
+services:
+  # 后端API服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - paper_uploads:/app/uploads
+      - paper_temp:/app/temp
+      - paper_output:/app/output
+    environment:
+      - DEBUG=true
+      - HOST=0.0.0.0
+      - PORT=8000
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.deepseek.com/v1}
+      - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
+      - TAVILY_API_KEY=${TAVILY_API_KEY}
+      # - DATABASE_URL=postgresql://postgres:postgres@db:5432/fastpaperread
+      # - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+    networks:
+      - fastpaper-network
+
+  # 前端服务
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - fastpaper-network
+
+  # PostgreSQL数据库
+  db:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=fastpaperread
+    restart: unless-stopped
+    networks:
+      - fastpaper-network
+
+  # Redis缓存
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - fastpaper-network
+
+  # Celery Worker (异步任务)
+  # celery:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: Dockerfile
+  #   command: celery -A app.tasks worker --loglevel=info
+  #   volumes:
+  #     - ./backend:/app
+  #     - paper_uploads:/app/uploads
+  #     - paper_temp:/app/temp
+  #   environment:
+  #     - REDIS_URL=redis://redis:6379/0
+  #   depends_on:
+  #     - redis
+  #     - backend
+  #   restart: unless-stopped
+  #   networks:
+  #     - fastpaper-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  paper_uploads:
+  paper_temp:
+  paper_output:
+
+networks:
+  fastpaper-network:
+    driver: bridge
+
