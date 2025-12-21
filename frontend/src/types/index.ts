@@ -1,147 +1,84 @@
-// ============================================
-// 论文相关类型
-// ============================================
+/**
+ * 共享类型定义
+ */
 
-export type PaperStatus = 'importing' | 'parsing' | 'unread' | 'skimmed' | 'deepread' | 'archived';
-export type QualityGrade = 'A' | 'B' | 'C' | 'D' | null;
+// ============ 论文相关 ============
+
+export type PaperStatus = 
+  | 'importing'
+  | 'parsing' 
+  | 'unread'
+  | 'skimmed'
+  | 'deepread'
+  | 'archived';
 
 export interface Paper {
   id: string;
   title: string;
   authors: string[];
-  year: number | null;
-  venue: string | null;
-  abstract: string | null;
+  year?: number;
+  venue?: string;
+  abstract?: string;
   keywords: string[];
-  source_type: 'pdf' | 'doi' | 'arxiv' | 'url';
+  source_type: string;
   source_value: string;
-  pdf_path: string | null;
+  pdf_path?: string;
+  markdown_path?: string;
   status: PaperStatus;
-  quality_grade: QualityGrade;
-  repro_status: 'complete' | 'partial' | 'missing' | null;
+  quality_grade?: string;
+  repro_status?: string;
+  current_section?: string;
   read_progress: number;
-  anchor_count: number;
-  card_count: number;
   created_at: string;
   updated_at: string;
-  last_read_at: string | null;
+  last_read_at?: string;
 }
 
-export interface PaperImportRequest {
-  pdf_url?: string;
-  doi?: string;
-  arxiv_id?: string;
-  title?: string;
-  authors?: string[];
-  year?: number;
+export interface PaperListResponse {
+  papers: Paper[];
+  total: number;
+  skip: number;
+  limit: number;
 }
 
-export interface PaperImportResponse {
-  paper_id: string;
-  job_id: string;
-  status: string;
-  message: string;
-}
+// ============ 锚点相关 ============
 
-export interface ImportJobStatus {
-  paper_id: string;
-  job_id: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  progress: number;
-  current_step: string;
-  steps: Record<string, string>;
-  error_message?: string;
-}
-
-// ============================================
-// 锚点相关类型
-// ============================================
-
-export type AnchorType = 'paragraph' | 'section' | 'figure' | 'table' | 'equation' | 'citation';
-
-export interface BoundingBox {
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
-}
+export type AnchorType = 
+  | 'paragraph'
+  | 'section'
+  | 'figure'
+  | 'table'
+  | 'equation'
+  | 'citation';
 
 export interface Anchor {
   id: string;
   paper_id: string;
   type: AnchorType;
-  page: number;
-  bbox: BoundingBox | null;
-  section: string | null;
-  section_level: number;
-  sequence: number;
-  text: string;
-  caption: string | null;
-  image_path: string | null;
-  figure_number: string | null;
-  latex: string | null;
-  equation_number: string | null;
-  symbols: string[];
-  table_data: Record<string, unknown> | null;
-  ref_id: string | null;
-  card_ids: string[];
-  cached_explanation: Record<string, string> | null;
+  page?: number;
+  bbox?: number[];
+  section?: string;
+  section_level?: number;
+  sequence?: number;
+  text?: string;
+  caption?: string;
+  image_path?: string;
+  figure_number?: string;
+  latex?: string;
+  equation_number?: string;
+  symbols?: string[];
+  table_data?: Record<string, unknown>;
+  ref_id?: string;
+  ref_text?: string;
+  metadata?: Record<string, unknown>;
+  explanation_cache?: Record<string, unknown>;
 }
 
-export interface SectionNode {
-  id: string;
-  title: string;
-  level: number;
-  anchor_id: string;
-  page: number;
-  children: SectionNode[];
-  is_read: boolean;
-  is_must_read: boolean;
-}
-
-export interface SectionTree {
-  paper_id: string;
-  sections: SectionNode[];
-}
-
-// ============================================
-// SkimCard相关类型
-// ============================================
-
-export interface SkimCard {
-  paper_id: string;
-  research_question: string;
-  contributions: string[];
-  evidence_strength: 'strong' | 'medium' | 'weak';
-  evidence_strength_reason: string;
-  red_flags: string[];
-  recommended_route: string;
-  recommended_sections: string[];
-  key_figures: string[];
-  generated_at: string;
-  source_anchor_ids: string[];
-}
-
-export type SkimDecision = 'archive' | 'queue' | 'deepread';
-
-export interface SkimDecisionRequest {
-  paper_id: string;
-  decision: SkimDecision;
-  archive_reasons?: string[];
-  archive_note?: string;
-  queue_priority?: 'high' | 'medium' | 'low';
-  estimated_time?: number;
-  reading_goal?: string;
-  reading_route?: string;
-}
-
-// ============================================
-// 卡片相关类型
-// ============================================
+// ============ 卡片相关 ============
 
 export type CardType = 'paper' | 'evidence' | 'method' | 'note';
 export type CardStatus = 'draft' | 'final';
-export type UncertaintyLevel = 'from_text' | 'inferred' | 'needs_verify';
+export type UncertaintyLevel = 'from_text' | 'inferred' | 'needs_confirm';
 
 export interface Card {
   id: string;
@@ -156,20 +93,22 @@ export interface Card {
   version: number;
   created_at: string;
   updated_at: string;
-  // PaperCard fields
+  
+  // PaperCard specific
   one_line_summary?: string;
   contributions?: string[];
   limitations?: string[];
   applicable_scope?: string;
-  keywords?: string[];
-  // EvidenceCard fields
+  
+  // EvidenceCard specific
   claim?: string;
   evidence?: string;
   evidence_strength?: string;
   alternative_explanations?: string[];
   risks?: string[];
   figure_anchor_ids?: string[];
-  // MethodCard fields
+  
+  // MethodCard specific
   method_name?: string;
   inputs?: string[];
   outputs?: string[];
@@ -180,78 +119,98 @@ export interface Card {
   equation_anchor_ids?: string[];
 }
 
-// ============================================
-// 增强引擎相关类型
-// ============================================
+// ============ SkimCard ============
 
-export type EnhanceType = 'term' | 'equation' | 'figure' | 'paragraph' | 'missing_detail';
-export type ExplanationLevel = 'one_liner' | 'plain' | 'strict';
-
-export interface EnhanceRequest {
-  paper_id: string;
-  anchor_id: string;
-  enhance_type: EnhanceType;
-  level?: ExplanationLevel;
-  selected_text?: string;
-  use_cache?: boolean;
+export interface SkimCard {
+  research_question: string;
+  contributions: string[];
+  evidence_strength: 'strong' | 'medium' | 'weak';
+  evidence_strength_reason: string;
+  red_flags: string[];
+  recommended_route: 'full_read' | 'focused_read' | 'skim' | 'skip';
+  recommended_sections: string[];
+  key_figures: string[];
 }
 
+// ============ 增强引擎 ============
+
 export interface TermExplanation {
-  term: string;
-  one_liner: string;
-  plain: string;
-  strict: string;
-  source_anchor_id: string;
-  uncertainty: UncertaintyLevel;
+  definition: string;
+  explanation: string;
+  examples: string[];
   related_terms: string[];
 }
 
-export interface EquationExplanation {
-  latex: string;
-  symbol_table: Record<string, string>;
-  key_assumptions: string[];
-  derivation_steps: string[];
-  plain_explanation: string;
-  source_anchor_id: string;
-  uncertainty: UncertaintyLevel;
-}
-
 export interface FigureExplanation {
-  figure_number: string;
-  caption: string;
-  what_it_shows: string;
-  evidence_assessment: string;
-  alternative_explanations: string[];
-  key_observations: string[];
-  source_anchor_id: string;
-  uncertainty: UncertaintyLevel;
+  description: string;
+  key_findings: string[];
+  interpretation: string;
+  limitations: string[];
+  related_content: string;
 }
 
-export interface EnhanceResponse {
-  enhance_type: EnhanceType;
-  anchor_id: string;
-  term?: TermExplanation;
-  equation?: EquationExplanation;
-  figure?: FigureExplanation;
-  cached: boolean;
-  processing_time_ms: number;
+export interface EquationExplanation {
+  explanation: string;
+  symbols: { symbol: string; meaning: string }[];
+  derivation_hint?: string;
+  usage: string;
+  related_equations: string[];
 }
 
-// ============================================
-// API响应类型
-// ============================================
+export interface MissingDetailItem {
+  group: 'data' | 'model' | 'training' | 'evaluation' | 'code';
+  text: string;
+  importance: 'high' | 'medium' | 'low';
+  suggestion: string;
+}
 
-export interface PaginatedResponse<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  has_more: boolean;
+export interface MissingDetails {
+  items: MissingDetailItem[];
+  completeness_score: number;
+  overall_assessment: string;
+}
+
+// ============ 复现清单 ============
+
+export interface ChecklistItem {
+  group: string;
+  text: string;
+  source_anchor?: string;
+  missing: boolean;
+  needs_verify: boolean;
+}
+
+export interface ReproChecklist {
+  paper_id: string;
+  items: ChecklistItem[];
+  total_items: number;
+  found_items: number;
+  missing_items: number;
+  completeness_score: number;
+  repro_verdict: 'good' | 'fair' | 'poor' | 'unknown';
+}
+
+// ============ 导入任务 ============
+
+export interface ImportJob {
+  id: string;
+  paper_id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  progress: number;
+  current_step: string;
+  steps: Record<string, 'pending' | 'running' | 'completed' | 'failed'>;
+  error_message?: string;
+}
+
+// ============ API 响应 ============
+
+export interface ApiResponse<T> {
+  data: T;
+  message?: string;
+  cached?: boolean;
 }
 
 export interface ApiError {
-  code: string;
-  message: string;
-  details?: Record<string, unknown>;
+  detail: string;
+  status_code?: number;
 }
-

@@ -1,418 +1,383 @@
 'use client';
 
-import { useState, useEffect, use } from 'react';
-import Link from 'next/link';
-import { MainLayout } from '@/components/layout';
-import { Button, Badge } from '@/components/common';
-import { usePaperStore } from '@/stores/paperStore';
-import { useUIStore } from '@/stores/uiStore';
-import { paperApi, anchorApi } from '@/lib/api';
+import { useState, useEffect } from 'react';
+import { useParams } from 'next/navigation';
+import { PDFViewer, AnchorList, EnhancePanel } from '@/components/reader';
+import { Button, Badge, Progress } from '@/components/common';
 import { cn } from '@/lib/utils';
+import type { Paper, Anchor, Card } from '@/types';
 import {
-  ArrowLeft,
   ChevronLeft,
   ChevronRight,
-  ZoomIn,
-  ZoomOut,
-  Maximize2,
   BookOpen,
-  List,
-  FileText,
-  CheckSquare,
+  Layers,
   Sparkles,
-  Eye,
-  EyeOff,
+  FileText,
+  Settings,
+  Save,
+  Share,
 } from 'lucide-react';
-import type { SectionNode } from '@/types';
 
-interface PageProps {
-  params: Promise<{ id: string }>;
-}
+type ViewMode = 'pdf' | 'markdown' | 'split';
+type RightPanelMode = 'anchors' | 'enhance' | 'cards' | 'notes';
 
-export default function ReadPage({ params }: PageProps) {
-  const resolvedParams = use(params);
-  const { currentPaper, setCurrentPaper, sectionTree, setSectionTree, currentAnchors, setCurrentAnchors } = usePaperStore();
-  const { splitRatio, setSplitRatio, pdfScale, setPdfScale, showAnchors, toggleAnchors, setRightPanelTab } = useUIStore();
+export default function ReadPage() {
+  const params = useParams();
+  const paperId = params.id as string;
+  
+  const [paper, setPaper] = useState<Paper | null>(null);
+  const [anchors, setAnchors] = useState<Anchor[]>([]);
+  const [cards, setCards] = useState<Card[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [selectedAnchorId, setSelectedAnchorId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'split' | 'pdf' | 'structure'>('split');
+  
+  const [viewMode, setViewMode] = useState<ViewMode>('split');
+  const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('anchors');
+  const [selectedAnchor, setSelectedAnchor] = useState<Anchor | null>(null);
+  const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false);
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
 
   useEffect(() => {
-    loadPaperData();
-  }, [resolvedParams.id]);
-
-  const loadPaperData = async () => {
-    setIsLoading(true);
-    try {
-      const paper = await paperApi.get(resolvedParams.id);
-      setCurrentPaper(paper);
-
-      const anchorsResponse = await anchorApi.getByPaper(resolvedParams.id);
-      setCurrentAnchors(anchorsResponse.items);
-
-      const sections = await anchorApi.getSectionTree(resolvedParams.id);
-      setSectionTree(sections);
-    } catch (error) {
-      console.error('Failed to load paper:', error);
-    } finally {
+    // 模拟加载数据
+    const loadData = async () => {
+      setIsLoading(true);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Mock data
+      setPaper({
+        id: paperId,
+        title: 'Attention Is All You Need',
+        authors: ['Ashish Vaswani', 'Noam Shazeer', 'Niki Parmar'],
+        year: 2017,
+        venue: 'NeurIPS',
+        abstract: 'The dominant sequence transduction models...',
+        keywords: ['Transformer', 'Attention', 'NLP'],
+        source_type: 'arxiv',
+        source_value: '1706.03762',
+        status: 'deepread',
+        read_progress: 0.35,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+      
+      // Mock anchors
+      setAnchors([
+        {
+          id: 'a1',
+          paper_id: paperId,
+          type: 'section',
+          section: 'Abstract',
+          text: 'The dominant sequence transduction models are based on complex recurrent or convolutional neural networks...',
+          page: 1,
+        },
+        {
+          id: 'a2',
+          paper_id: paperId,
+          type: 'section',
+          section: '1. Introduction',
+          page: 1,
+        },
+        {
+          id: 'a3',
+          paper_id: paperId,
+          type: 'figure',
+          section: '3. Model Architecture',
+          caption: 'Figure 1: The Transformer model architecture',
+          image_path: '/figures/transformer.png',
+          page: 3,
+        },
+        {
+          id: 'a4',
+          paper_id: paperId,
+          type: 'equation',
+          section: '3.2 Attention',
+          latex: 'Attention(Q, K, V) = softmax(\\frac{QK^T}{\\sqrt{d_k}})V',
+          text: 'Scaled Dot-Product Attention',
+          page: 4,
+        },
+        {
+          id: 'a5',
+          paper_id: paperId,
+          type: 'table',
+          section: '6. Results',
+          caption: 'Table 2: The Transformer achieves better BLEU scores than previous state-of-the-art models on the English-to-German and English-to-French newstest2014 tests at a fraction of the training cost.',
+          page: 8,
+        },
+      ]);
+      
       setIsLoading(false);
-    }
-  };
+    };
 
-  const handleAnchorClick = (anchorId: string) => {
-    setSelectedAnchorId(anchorId);
-    setRightPanelTab('enhance');
+    loadData();
+  }, [paperId]);
+
+  const handleAnchorClick = (anchor: Anchor) => {
+    setSelectedAnchor(anchor);
+    setRightPanelMode('enhance');
   };
 
   if (isLoading) {
     return (
-      <MainLayout showSearch={false}>
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+      <div className="flex items-center justify-center h-full">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-10 h-10 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+          <p className="text-gray-600">加载中...</p>
         </div>
-      </MainLayout>
+      </div>
+    );
+  }
+
+  if (!paper) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <p className="text-gray-600">论文不存在</p>
+      </div>
     );
   }
 
   return (
-    <MainLayout showSearch={false} showRightPanel>
-      <div className="h-[calc(100vh-4rem)] flex flex-col">
-        {/* Toolbar */}
-        <div className="h-12 bg-white border-b border-gray-200 flex items-center justify-between px-4 shrink-0">
-          <div className="flex items-center gap-4">
-            <Link
-              href={`/paper/${resolvedParams.id}/overview`}
-              className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              返回概览
-            </Link>
-            <span className="text-sm font-medium text-gray-900 truncate max-w-md">
-              {currentPaper?.title}
-            </span>
+    <div className="flex flex-col h-screen bg-gray-100">
+      {/* Top Bar */}
+      <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-gray-200">
+        <div className="flex items-center gap-4">
+          <button className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg">
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+          <div>
+            <h1 className="font-medium text-gray-900 line-clamp-1">{paper.title}</h1>
+            <div className="flex items-center gap-2 text-sm text-gray-500">
+              <span>{paper.authors?.slice(0, 2).join(', ')}{paper.authors?.length > 2 ? ' et al.' : ''}</span>
+              <span>•</span>
+              <span>{paper.venue} {paper.year}</span>
+            </div>
           </div>
+        </div>
 
-          <div className="flex items-center gap-2">
-            {/* View Mode */}
-            <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-lg">
-              <button
-                onClick={() => setViewMode('pdf')}
-                className={cn(
-                  'p-1.5 rounded-md transition-colors',
-                  viewMode === 'pdf' ? 'bg-white shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                )}
-                title="仅PDF"
-              >
-                <FileText className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setViewMode('split')}
-                className={cn(
-                  'p-1.5 rounded-md transition-colors',
-                  viewMode === 'split' ? 'bg-white shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                )}
-                title="分屏"
-              >
-                <Maximize2 className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setViewMode('structure')}
-                className={cn(
-                  'p-1.5 rounded-md transition-colors',
-                  viewMode === 'structure' ? 'bg-white shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                )}
-                title="仅结构化"
-              >
-                <List className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Zoom */}
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setPdfScale(Math.max(0.5, pdfScale - 0.1))}
-                className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md"
-              >
-                <ZoomOut className="w-4 h-4" />
-              </button>
-              <span className="text-sm text-gray-600 w-12 text-center">
-                {Math.round(pdfScale * 100)}%
-              </span>
-              <button
-                onClick={() => setPdfScale(Math.min(2, pdfScale + 0.1))}
-                className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md"
-              >
-                <ZoomIn className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Toggle Anchors */}
+        <div className="flex items-center gap-3">
+          {/* View mode toggle */}
+          <div className="flex items-center bg-gray-100 rounded-lg p-1">
             <button
-              onClick={toggleAnchors}
+              onClick={() => setViewMode('pdf')}
               className={cn(
-                'p-1.5 rounded-md transition-colors',
-                showAnchors ? 'bg-indigo-50 text-indigo-600' : 'text-gray-500 hover:text-gray-700'
+                'px-3 py-1 text-sm rounded-md transition-colors',
+                viewMode === 'pdf' ? 'bg-white shadow text-gray-900' : 'text-gray-600'
               )}
-              title={showAnchors ? '隐藏锚点' : '显示锚点'}
             >
-              {showAnchors ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+              PDF
+            </button>
+            <button
+              onClick={() => setViewMode('split')}
+              className={cn(
+                'px-3 py-1 text-sm rounded-md transition-colors',
+                viewMode === 'split' ? 'bg-white shadow text-gray-900' : 'text-gray-600'
+              )}
+            >
+              分屏
+            </button>
+            <button
+              onClick={() => setViewMode('markdown')}
+              className={cn(
+                'px-3 py-1 text-sm rounded-md transition-colors',
+                viewMode === 'markdown' ? 'bg-white shadow text-gray-900' : 'text-gray-600'
+              )}
+            >
+              Markdown
             </button>
           </div>
+
+          {/* Progress */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-500">进度</span>
+            <Progress value={paper.read_progress * 100} className="w-24" />
+            <span className="text-sm text-gray-600">{Math.round(paper.read_progress * 100)}%</span>
+          </div>
+
+          {/* Actions */}
+          <button className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg">
+            <Save className="w-5 h-5" />
+          </button>
+          <button className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg">
+            <Share className="w-5 h-5" />
+          </button>
+          <button className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg">
+            <Settings className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left Panel - Outline */}
+        <div
+          className={cn(
+            'bg-white border-r border-gray-200 transition-all duration-300',
+            leftPanelCollapsed ? 'w-0' : 'w-64'
+          )}
+        >
+          {!leftPanelCollapsed && (
+            <div className="h-full overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+                <div className="flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-gray-500" />
+                  <span className="font-medium text-gray-900">大纲</span>
+                </div>
+                <button
+                  onClick={() => setLeftPanelCollapsed(true)}
+                  className="p-1 text-gray-400 hover:text-gray-600"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+              </div>
+              <AnchorList
+                anchors={anchors}
+                onAnchorClick={handleAnchorClick}
+                selectedAnchorId={selectedAnchor?.id}
+                className="h-[calc(100%-53px)]"
+              />
+            </div>
+          )}
         </div>
 
-        {/* Main Content */}
+        {leftPanelCollapsed && (
+          <button
+            onClick={() => setLeftPanelCollapsed(false)}
+            className="flex items-center justify-center w-6 bg-white border-r border-gray-200 text-gray-400 hover:text-gray-600"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        )}
+
+        {/* Center - PDF/Markdown Viewer */}
         <div className="flex-1 flex overflow-hidden">
-          {/* PDF Viewer */}
           {(viewMode === 'pdf' || viewMode === 'split') && (
-            <div
-              className={cn(
-                'bg-gray-100 overflow-auto',
-                viewMode === 'split' ? 'w-1/2 border-r border-gray-200' : 'flex-1'
-              )}
-            >
+            <div className={cn('flex-1', viewMode === 'split' && 'border-r border-gray-300')}>
               <PDFViewer
-                pdfPath={currentPaper?.pdf_path}
-                scale={pdfScale}
-                currentPage={currentPage}
-                onPageChange={setCurrentPage}
-                anchors={showAnchors ? currentAnchors : []}
-                onAnchorClick={handleAnchorClick}
-                selectedAnchorId={selectedAnchorId}
+                pdfUrl={paper.pdf_path || `/api/papers/${paperId}/pdf`}
+                highlightAnchorId={selectedAnchor?.id}
+                onAnchorClick={(id) => {
+                  const anchor = anchors.find(a => a.id === id);
+                  if (anchor) handleAnchorClick(anchor);
+                }}
               />
             </div>
           )}
-
-          {/* Structured View */}
-          {(viewMode === 'structure' || viewMode === 'split') && (
-            <div
-              className={cn(
-                'bg-white overflow-auto',
-                viewMode === 'split' ? 'w-1/2' : 'flex-1'
-              )}
-            >
-              <StructuredView
-                sections={sectionTree?.sections || []}
-                anchors={currentAnchors}
-                onAnchorClick={handleAnchorClick}
-                selectedAnchorId={selectedAnchorId}
-              />
+          
+          {(viewMode === 'markdown' || viewMode === 'split') && (
+            <div className="flex-1 bg-white overflow-auto p-8">
+              <article className="prose prose-indigo max-w-none">
+                <h1>{paper.title}</h1>
+                <p className="text-gray-500">{paper.authors?.join(', ')}</p>
+                
+                <h2>Abstract</h2>
+                <p>{paper.abstract || '暂无摘要'}</p>
+                
+                {/* Rendered sections would go here */}
+                <div className="text-center text-gray-400 py-10">
+                  <FileText className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p>Markdown内容将在这里显示</p>
+                  <p className="text-sm mt-2">实际项目中从后端获取解析后的Markdown</p>
+                </div>
+              </article>
             </div>
           )}
         </div>
-      </div>
-    </MainLayout>
-  );
-}
 
-// PDF Viewer Component
-function PDFViewer({
-  pdfPath,
-  scale,
-  currentPage,
-  onPageChange,
-  anchors,
-  onAnchorClick,
-  selectedAnchorId,
-}: {
-  pdfPath?: string | null;
-  scale: number;
-  currentPage: number;
-  onPageChange: (page: number) => void;
-  anchors: Array<{ id: string; page: number; type: string; bbox?: { x1: number; y1: number; x2: number; y2: number } | null }>;
-  onAnchorClick: (id: string) => void;
-  selectedAnchorId: string | null;
-}) {
-  // 这里是PDF渲染的占位符，实际需要集成PDF.js
-  return (
-    <div className="p-4">
-      <div className="bg-white rounded-lg shadow-lg p-8 min-h-[800px] relative">
-        <div className="absolute inset-0 flex items-center justify-center text-gray-400">
-          <div className="text-center">
-            <FileText className="w-16 h-16 mx-auto mb-4" />
-            <p className="text-lg font-medium">PDF 阅读器</p>
-            <p className="text-sm mt-2">需要集成 PDF.js</p>
-            {pdfPath && (
-              <p className="text-xs mt-4 text-gray-300">{pdfPath}</p>
-            )}
-          </div>
-        </div>
-
-        {/* Anchor Overlays */}
-        {anchors
-          .filter((a) => a.page === currentPage && a.bbox)
-          .map((anchor) => (
-            <div
-              key={anchor.id}
-              onClick={() => onAnchorClick(anchor.id)}
-              className={cn(
-                'absolute cursor-pointer transition-colors',
-                anchor.type === 'figure'
-                  ? 'pdf-highlight-figure'
-                  : anchor.type === 'equation'
-                  ? 'pdf-highlight-equation'
-                  : 'pdf-highlight',
-                selectedAnchorId === anchor.id && 'ring-2 ring-indigo-500'
-              )}
-              style={{
-                left: `${(anchor.bbox?.x1 || 0) * 100}%`,
-                top: `${(anchor.bbox?.y1 || 0) * 100}%`,
-                width: `${((anchor.bbox?.x2 || 0) - (anchor.bbox?.x1 || 0)) * 100}%`,
-                height: `${((anchor.bbox?.y2 || 0) - (anchor.bbox?.y1 || 0)) * 100}%`,
-              }}
-            />
-          ))}
-      </div>
-
-      {/* Page Navigation */}
-      <div className="flex items-center justify-center gap-4 mt-4">
-        <button
-          onClick={() => onPageChange(Math.max(1, currentPage - 1))}
-          className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+        {/* Right Panel */}
+        <div
+          className={cn(
+            'bg-white border-l border-gray-200 transition-all duration-300',
+            rightPanelCollapsed ? 'w-0' : 'w-80'
+          )}
         >
-          <ChevronLeft className="w-5 h-5" />
-        </button>
-        <span className="text-sm text-gray-600">
-          第 {currentPage} 页
-        </span>
-        <button
-          onClick={() => onPageChange(currentPage + 1)}
-          className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
-        >
-          <ChevronRight className="w-5 h-5" />
-        </button>
-      </div>
-    </div>
-  );
-}
+          {!rightPanelCollapsed && (
+            <div className="h-full flex flex-col overflow-hidden">
+              {/* Panel tabs */}
+              <div className="flex items-center border-b border-gray-200">
+                <button
+                  onClick={() => setRightPanelMode('anchors')}
+                  className={cn(
+                    'flex-1 flex items-center justify-center gap-1 py-3 text-sm font-medium transition-colors',
+                    rightPanelMode === 'anchors'
+                      ? 'text-indigo-600 border-b-2 border-indigo-600'
+                      : 'text-gray-500 hover:text-gray-700'
+                  )}
+                >
+                  <Layers className="w-4 h-4" />
+                  元素
+                </button>
+                <button
+                  onClick={() => setRightPanelMode('enhance')}
+                  className={cn(
+                    'flex-1 flex items-center justify-center gap-1 py-3 text-sm font-medium transition-colors',
+                    rightPanelMode === 'enhance'
+                      ? 'text-indigo-600 border-b-2 border-indigo-600'
+                      : 'text-gray-500 hover:text-gray-700'
+                  )}
+                >
+                  <Sparkles className="w-4 h-4" />
+                  AI
+                </button>
+                <button
+                  onClick={() => setRightPanelMode('cards')}
+                  className={cn(
+                    'flex-1 flex items-center justify-center gap-1 py-3 text-sm font-medium transition-colors',
+                    rightPanelMode === 'cards'
+                      ? 'text-indigo-600 border-b-2 border-indigo-600'
+                      : 'text-gray-500 hover:text-gray-700'
+                  )}
+                >
+                  <FileText className="w-4 h-4" />
+                  卡片
+                </button>
+                <button
+                  onClick={() => setRightPanelCollapsed(true)}
+                  className="p-3 text-gray-400 hover:text-gray-600"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
 
-// Structured View Component
-function StructuredView({
-  sections,
-  anchors,
-  onAnchorClick,
-  selectedAnchorId,
-}: {
-  sections: SectionNode[];
-  anchors: Array<{ id: string; section?: string | null; type: string; text: string }>;
-  onAnchorClick: (id: string) => void;
-  selectedAnchorId: string | null;
-}) {
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
-
-  const toggleSection = (id: string) => {
-    const next = new Set(expandedSections);
-    if (next.has(id)) {
-      next.delete(id);
-    } else {
-      next.add(id);
-    }
-    setExpandedSections(next);
-  };
-
-  return (
-    <div className="p-4">
-      {/* Section Navigation */}
-      <div className="mb-6">
-        <h3 className="text-sm font-medium text-gray-500 mb-3">章节导航</h3>
-        <div className="space-y-1">
-          {sections.map((section) => (
-            <SectionItem
-              key={section.id}
-              section={section}
-              expanded={expandedSections.has(section.id)}
-              onToggle={() => toggleSection(section.id)}
-              level={0}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* Content by Section */}
-      <div className="space-y-6">
-        {sections.map((section) => (
-          <div key={section.id} className="bg-gray-50 rounded-lg p-4">
-            <h4 className="font-medium text-gray-900 mb-3 flex items-center gap-2">
-              {section.is_must_read && (
-                <Badge variant="warning" size="sm">必读</Badge>
-              )}
-              {section.title}
-            </h4>
-            
-            {/* Related anchors */}
-            <div className="space-y-2">
-              {anchors
-                .filter((a) => a.section === section.title && a.type === 'paragraph')
-                .slice(0, 3)
-                .map((anchor) => (
-                  <div
-                    key={anchor.id}
-                    onClick={() => onAnchorClick(anchor.id)}
-                    className={cn(
-                      'p-3 bg-white rounded-lg text-sm text-gray-600 cursor-pointer hover:bg-indigo-50 transition-colors',
-                      selectedAnchorId === anchor.id && 'ring-2 ring-indigo-500'
-                    )}
-                  >
-                    {anchor.text.length > 200
-                      ? anchor.text.slice(0, 200) + '...'
-                      : anchor.text}
+              {/* Panel content */}
+              <div className="flex-1 overflow-hidden">
+                {rightPanelMode === 'anchors' && (
+                  <AnchorList
+                    anchors={anchors}
+                    onAnchorClick={handleAnchorClick}
+                    selectedAnchorId={selectedAnchor?.id}
+                  />
+                )}
+                {rightPanelMode === 'enhance' && (
+                  <EnhancePanel
+                    anchor={selectedAnchor}
+                    onExplainTerm={() => {}}
+                    onExplainFigure={() => {}}
+                    onExplainEquation={() => {}}
+                  />
+                )}
+                {rightPanelMode === 'cards' && (
+                  <div className="p-4">
+                    <div className="text-center text-gray-400 py-10">
+                      <FileText className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">暂无卡片</p>
+                      <Button size="sm" variant="secondary" className="mt-3">
+                        创建卡片
+                      </Button>
+                    </div>
                   </div>
-                ))}
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          )}
+        </div>
+
+        {rightPanelCollapsed && (
+          <button
+            onClick={() => setRightPanelCollapsed(false)}
+            className="flex items-center justify-center w-6 bg-white border-l border-gray-200 text-gray-400 hover:text-gray-600"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+        )}
       </div>
     </div>
   );
 }
-
-function SectionItem({
-  section,
-  expanded,
-  onToggle,
-  level,
-}: {
-  section: SectionNode;
-  expanded: boolean;
-  onToggle: () => void;
-  level: number;
-}) {
-  return (
-    <div style={{ paddingLeft: level * 12 }}>
-      <button
-        onClick={onToggle}
-        className={cn(
-          'w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors text-left',
-          section.is_read ? 'text-gray-400' : 'text-gray-700',
-          section.is_must_read && 'font-medium',
-          'hover:bg-gray-100'
-        )}
-      >
-        {section.children.length > 0 && (
-          <ChevronRight
-            className={cn('w-4 h-4 transition-transform', expanded && 'rotate-90')}
-          />
-        )}
-        {section.is_read && <CheckSquare className="w-4 h-4 text-green-500" />}
-        <span>{section.title}</span>
-        {section.is_must_read && !section.is_read && (
-          <span className="text-xs text-amber-500">必读</span>
-        )}
-      </button>
-      {expanded && section.children.length > 0 && (
-        <div className="mt-1">
-          {section.children.map((child) => (
-            <SectionItem
-              key={child.id}
-              section={child}
-              expanded={false}
-              onToggle={() => {}}
-              level={level + 1}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-

@@ -1,59 +1,39 @@
 """
-论文相关的API Schema
+论文相关的Pydantic Schema
 """
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict, Any
 from datetime import datetime
-from typing import Optional, List, Any
-from pydantic import BaseModel, Field, HttpUrl
+from enum import Enum
 
 
-class PaperImportRequest(BaseModel):
-    """论文导入请求"""
-    # 支持多种导入方式
-    pdf_url: Optional[str] = None
-    doi: Optional[str] = None
-    arxiv_id: Optional[str] = None
-    
-    # 可选的预填元数据
-    title: Optional[str] = None
-    authors: Optional[List[str]] = None
-    year: Optional[int] = None
-    venue: Optional[str] = None
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "pdf_url": "https://arxiv.org/pdf/2301.00001.pdf",
-                "title": "Example Paper Title",
-                "authors": ["Author One", "Author Two"]
-            }
-        }
+class PaperStatus(str, Enum):
+    IMPORTING = "importing"
+    PARSING = "parsing"
+    UNREAD = "unread"
+    SKIMMED = "skimmed"
+    DEEPREAD = "deepread"
+    ARCHIVED = "archived"
 
 
-class PaperImportResponse(BaseModel):
-    """论文导入响应"""
-    paper_id: str
-    job_id: str
-    status: str = "pending"
-    message: str = "论文导入任务已创建"
+class PaperSource(BaseModel):
+    """论文来源"""
+    type: str = Field(default="pdf", description="来源类型: pdf, arxiv, doi, url")
+    value: str = Field(default="", description="来源值")
 
 
-class PaperMetadata(BaseModel):
-    """论文元数据"""
-    title: str
-    authors: List[str] = []
+class PaperBase(BaseModel):
+    """论文基础字段"""
+    title: str = Field(..., max_length=500)
+    authors: List[str] = Field(default_factory=list)
     year: Optional[int] = None
     venue: Optional[str] = None
     abstract: Optional[str] = None
-    keywords: List[str] = []
+    keywords: List[str] = Field(default_factory=list)
 
 
-class PaperCreate(BaseModel):
+class PaperCreate(PaperBase):
     """创建论文"""
-    title: str
-    authors: List[str] = []
-    year: Optional[int] = None
-    venue: Optional[str] = None
-    abstract: Optional[str] = None
     source_type: str = "pdf"
     source_value: str = ""
 
@@ -65,66 +45,45 @@ class PaperUpdate(BaseModel):
     year: Optional[int] = None
     venue: Optional[str] = None
     abstract: Optional[str] = None
-    status: Optional[str] = None
+    keywords: Optional[List[str]] = None
     quality_grade: Optional[str] = None
-    current_section: Optional[str] = None
-    read_progress: Optional[float] = None
+    status: Optional[str] = None
 
 
-class PaperResponse(BaseModel):
-    """论文响应"""
+class PaperInDB(PaperBase):
+    """数据库中的论文"""
     id: str
-    title: str
-    authors: List[str]
-    year: Optional[int]
-    venue: Optional[str]
-    abstract: Optional[str]
-    keywords: List[str]
-    
-    source_type: str
-    source_value: str
-    pdf_path: Optional[str]
-    
-    status: str
-    quality_grade: Optional[str]
-    repro_status: Optional[str]
-    read_progress: float
-    
-    anchor_count: int = 0
-    card_count: int = 0
-    
+    source_type: str = "pdf"
+    source_value: str = ""
+    pdf_path: Optional[str] = None
+    markdown_path: Optional[str] = None
+    status: str = "importing"
+    quality_grade: Optional[str] = None
+    repro_status: Optional[str] = None
+    current_section: Optional[str] = None
+    read_progress: float = 0.0
     created_at: datetime
     updated_at: datetime
-    last_read_at: Optional[datetime]
+    last_read_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
 
 
 class PaperListResponse(BaseModel):
     """论文列表响应"""
-    items: List[PaperResponse]
+    papers: List[PaperInDB]
     total: int
-    page: int
+    skip: int
     limit: int
-    has_more: bool
 
 
-class PaperParseStatusResponse(BaseModel):
-    """解析状态响应"""
-    paper_id: str
-    job_id: str
-    status: str  # pending/running/completed/failed
-    progress: float  # 0-100
-    current_step: str
-    steps: dict
-    error_message: Optional[str] = None
-
-
-class PaperStatsResponse(BaseModel):
-    """论文统计响应"""
+class PaperStats(BaseModel):
+    """论文统计"""
     total: int
     unread: int
     skimmed: int
     deepread: int
     archived: int
-    by_quality: dict  # {"A": 10, "B": 20, ...}
-    by_year: dict     # {"2024": 5, "2023": 10, ...}
-
+    by_quality: Dict[str, int]
+    by_year: Dict[str, int]

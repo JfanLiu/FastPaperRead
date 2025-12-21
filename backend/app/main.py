@@ -22,6 +22,11 @@ async def lifespan(app: FastAPI):
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     os.makedirs(settings.OUTPUT_DIR, exist_ok=True)
     
+    # 初始化数据库
+    from .db.base import init_db
+    init_db()
+    print("✅ 数据库初始化完成")
+    
     yield
     
     # 关闭时

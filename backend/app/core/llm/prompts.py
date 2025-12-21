@@ -1,183 +1,221 @@
 """
-Prompt模板
+LLM Prompt 模板
 """
 
-class PromptTemplates:
-    """Prompt模板集合"""
-    
-    # ============================================
-    # SkimCard生成
-    # ============================================
-    
-    SKIM_CARD_SYSTEM = """你是一位资深的科研论文分析专家。你的任务是快速分析论文并生成结构化的SkimCard，帮助读者在3-5分钟内判断论文是否值得深读。
+SKIM_CARD_PROMPT = """你是一个学术论文分析助手。请分析以下论文内容，生成一个快速阅读卡片(SkimCard)。
 
-你的输出必须严格遵循JSON格式，包含以下字段：
-- research_question: 研究问题（一句话）
-- contributions: 贡献点列表（3-5条）
-- evidence_strength: 证据强度（strong/medium/weak）
-- evidence_strength_reason: 证据强度判断理由
-- red_flags: 风险提示列表（可能为空）
-- recommended_sections: 推荐阅读的章节列表"""
-
-    SKIM_CARD_USER = """请分析以下论文内容，生成SkimCard：
-
-标题：{title}
-
-摘要：
-{abstract}
-
-章节结构：
-{sections}
-
-请以JSON格式输出分析结果。"""
-
-    # ============================================
-    # 术语解释
-    # ============================================
-    
-    TERM_EXPLAIN_SYSTEM = """你是一位专业的科研术语解释专家。你需要为用户解释论文中的专业术语，提供三个层次的解释：
-1. one_liner: 一句话解释（10字以内）
-2. plain: 通俗版解释（100字以内，使用类比和例子）
-3. strict: 严格版解释（学术定义，可包含公式）
-
-同时标注解释的不确定性：
-- from_text: 来自原文明确说明
-- inferred: 根据上下文推测
-- needs_verify: 需要确认
-
-输出JSON格式。"""
-
-    TERM_EXPLAIN_USER = """请解释术语：{term}
-
-上下文：
-{context}
-
-请以JSON格式输出，包含 one_liner, plain, strict, uncertainty, related_terms 字段。"""
-
-    # ============================================
-    # 公式解释
-    # ============================================
-    
-    EQUATION_EXPLAIN_SYSTEM = """你是一位数学公式解释专家。你需要：
-1. 列出公式中每个符号的含义（symbol_table）
-2. 说明关键假设（key_assumptions）
-3. 给出推导要点（derivation_steps）
-4. 用通俗语言解释公式含义（plain_explanation）
-
-输出JSON格式。"""
-
-    EQUATION_EXPLAIN_USER = """请解释以下公式：
-
-LaTeX: {latex}
-
-上下文：
-{context}
-
-请以JSON格式输出。"""
-
-    # ============================================
-    # 图表解释
-    # ============================================
-    
-    FIGURE_EXPLAIN_SYSTEM = """你是一位图表分析专家。分析图表时请关注：
-1. 图表想证明什么（what_it_shows）
-2. 证据是否充分支持结论（evidence_assessment）
-3. 是否存在替代解释（alternative_explanations）
-4. 关键观察点（key_observations）
-
-保持批判性思维，指出潜在问题。输出JSON格式。"""
-
-    FIGURE_EXPLAIN_USER = """请分析以下图表：
-
-图号：{figure_number}
-标题：{caption}
-
-相关文字描述：
-{context}
-
-请以JSON格式输出分析结果。"""
-
-    # ============================================
-    # 复现清单提取
-    # ============================================
-    
-    REPRO_CHECKLIST_SYSTEM = """你是一位实验复现专家。从论文中提取复现所需的关键信息，分为以下类别：
-- data: 数据相关（数据集、划分、预处理）
-- training: 训练相关（优化器、学习率、batch size、epoch）
-- eval: 评估相关（指标、baseline）
-- env: 环境相关（框架版本、硬件）
-
-对于每个条目标注：
-- found: 在论文中明确找到
-- missing: 论文中缺失
-- inferred: 根据上下文推测
-
-输出JSON格式。"""
-
-    REPRO_CHECKLIST_USER = """请从以下论文内容中提取复现清单：
-
+论文内容：
 {content}
 
-请以JSON格式输出，每个条目包含 group, name, value, status 字段。"""
+请按以下JSON格式输出：
+{{
+  "research_question": "用一句话概括论文解决的核心问题",
+  "contributions": ["贡献1", "贡献2", "贡献3"],
+  "evidence_strength": "strong/medium/weak",
+  "evidence_strength_reason": "解释证据强度的原因",
+  "red_flags": ["可能的问题1", "可能的问题2"],
+  "recommended_route": "full_read/focused_read/skim/skip",
+  "recommended_sections": ["建议阅读的章节1", "建议阅读的章节2"]
+}}
 
-    # ============================================
-    # 审稿草稿
-    # ============================================
-    
-    REVIEW_DRAFT_SYSTEM = """你是一位资深的论文审稿人。基于论文内容和已有的分析卡片，生成审稿草稿。
+只输出JSON，不要其他内容。"""
 
-评分维度（1-5分）：
-- novelty: 新颖性
-- soundness: 方法合理性
-- rigor: 实验严谨性
-- reproducibility: 可复现性
-- clarity: 写作清晰度
 
-同时生成审稿问题列表，标注问题严重程度（major/minor）和类型（method/experiment/stats/repro/writing）。
+TERM_EXPLAINER_PROMPT = """你是一个学术术语解释专家。请解释以下术语：
 
-输出JSON格式。"""
+术语：{term}
 
-    REVIEW_DRAFT_USER = """请为以下论文生成审稿草稿：
+上下文：
+{context}
 
-标题：{title}
+请按以下JSON格式输出：
+{{
+  "definition": "术语的定义",
+  "explanation": "通俗易懂的解释（面向研究生水平）",
+  "examples": ["例子1", "例子2"],
+  "related_terms": ["相关术语1", "相关术语2"]
+}}
 
-已有分析：
-{analysis}
+只输出JSON，不要其他内容。"""
 
-请以JSON格式输出，包含 rubric 和 questions 字段。"""
 
-    # ============================================
-    # 段落总结
-    # ============================================
-    
-    PARAGRAPH_SUMMARY_SYSTEM = """你是一位论文总结专家。为段落提供三个层次的总结：
-1. one_liner: 一句话核心观点
-2. plain_summary: 通俗总结
-3. strict_summary: 学术化总结
+FIGURE_EXPLAINER_PROMPT = """你是一个学术图表分析专家。请分析以下图表：
 
-同时提取 key_points 关键点列表。输出JSON格式。"""
+图表标题/描述：{caption}
 
-    PARAGRAPH_SUMMARY_USER = """请总结以下段落：
+图表上下文：
+{context}
 
-{text}
+请按以下JSON格式输出：
+{{
+  "description": "图表展示了什么",
+  "key_findings": ["关键发现1", "关键发现2"],
+  "interpretation": "如何解读这个图表",
+  "limitations": ["局限性1"],
+  "related_content": "与论文其他部分的关联"
+}}
 
-请以JSON格式输出。"""
+只输出JSON，不要其他内容。"""
 
-    # ============================================
-    # 对比分析
-    # ============================================
-    
-    COMPARE_ANALYSIS_SYSTEM = """你是一位文献对比分析专家。分析多篇论文时：
-1. 识别共同的术语和指标
-2. 建议归一化映射
-3. 发现潜在的结论冲突
-4. 生成对比矩阵
 
-输出JSON格式。"""
+EQUATION_EXPLAINER_PROMPT = """你是一个数学公式解释专家。请解释以下公式：
 
-    COMPARE_ANALYSIS_USER = """请对比分析以下论文：
+公式：
+{latex}
 
-{papers}
+上下文：
+{context}
 
-请以JSON格式输出对比分析结果。"""
+请按以下JSON格式输出：
+{{
+  "explanation": "公式的含义",
+  "symbols": [
+    {{"symbol": "x", "meaning": "符号x的含义"}},
+    {{"symbol": "y", "meaning": "符号y的含义"}}
+  ],
+  "derivation_hint": "推导思路（如果适用）",
+  "usage": "公式的用途",
+  "related_equations": ["相关公式（如果有）"]
+}}
 
+只输出JSON，不要其他内容。"""
+
+
+MISSING_DETAIL_FINDER_PROMPT = """你是一个论文复现专家。请分析以下论文内容，找出复现论文时可能缺失的关键细节。
+
+论文内容：
+{content}
+
+请按以下JSON格式输出：
+{{
+  "items": [
+    {{
+      "group": "data/model/training/evaluation/code",
+      "text": "缺失的细节描述",
+      "importance": "high/medium/low",
+      "suggestion": "建议如何获取这个信息"
+    }}
+  ],
+  "completeness_score": 0.0-1.0之间的分数,
+  "overall_assessment": "整体评估"
+}}
+
+只输出JSON，不要其他内容。"""
+
+
+PAPER_CARD_PROMPT = """你是一个论文总结专家。请为以下论文生成一个Paper Card。
+
+论文内容：
+{content}
+
+请按以下JSON格式输出：
+{{
+  "one_line_summary": "一句话总结",
+  "contributions": ["贡献1", "贡献2", "贡献3"],
+  "limitations": ["局限性1", "局限性2"],
+  "applicable_scope": "适用范围和场景"
+}}
+
+只输出JSON，不要其他内容。"""
+
+
+EVIDENCE_CARD_PROMPT = """你是一个论文证据分析专家。请分析以下内容，生成一个Evidence Card。
+
+内容：
+{content}
+
+请按以下JSON格式输出：
+{{
+  "claim": "论文的主张",
+  "evidence": "支持主张的证据",
+  "evidence_strength": "strong/medium/weak",
+  "alternative_explanations": ["替代解释1", "替代解释2"],
+  "risks": ["风险1", "风险2"]
+}}
+
+只输出JSON，不要其他内容。"""
+
+
+METHOD_CARD_PROMPT = """你是一个方法论分析专家。请分析以下方法描述，生成一个Method Card。
+
+方法描述：
+{content}
+
+请按以下JSON格式输出：
+{{
+  "method_name": "方法名称",
+  "inputs": ["输入1", "输入2"],
+  "outputs": ["输出1", "输出2"],
+  "assumptions": ["假设1", "假设2"],
+  "process": "方法流程描述",
+  "pseudocode": "伪代码（可选）",
+  "complexity": "时间/空间复杂度"
+}}
+
+只输出JSON，不要其他内容。"""
+
+
+SECTION_SUMMARY_PROMPT = """请总结以下论文章节的核心内容：
+
+章节标题：{section_title}
+
+章节内容：
+{content}
+
+请用2-3句话总结这个章节的关键信息。"""
+
+
+COMPARE_PAPERS_PROMPT = """请比较以下两篇论文：
+
+论文1：
+{paper1_content}
+
+论文2：
+{paper2_content}
+
+比较维度：{dimensions}
+
+请按以下JSON格式输出：
+{{
+  "comparison": [
+    {{
+      "dimension": "维度名称",
+      "paper1": "论文1在此维度的表现",
+      "paper2": "论文2在此维度的表现",
+      "summary": "对比总结"
+    }}
+  ],
+  "overall_summary": "整体对比结论"
+}}
+
+只输出JSON，不要其他内容。"""
+
+
+REVIEW_DRAFT_PROMPT = """你是一个学术审稿人。请为以下论文撰写审稿意见草稿。
+
+论文内容：
+{content}
+
+请按以下结构输出审稿意见：
+
+## 总体评价
+[对论文的整体评价]
+
+## 主要优点
+1. [优点1]
+2. [优点2]
+
+## 主要问题
+1. [问题1]
+2. [问题2]
+
+## 具体建议
+1. [建议1]
+2. [建议2]
+
+## 小问题
+- [小问题1]
+- [小问题2]
+
+## 结论
+[Accept/Minor Revision/Major Revision/Reject] - [理由]"""

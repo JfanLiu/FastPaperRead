@@ -1,23 +1,49 @@
 """
-Pydantic Schemas - API 请求和响应模型
+Pydantic Schemas
 """
-from .paper import *
-from .anchor import *
-from .card import *
-from .enhance import *
-from .skim import *
+from .paper import (
+    PaperBase,
+    PaperCreate,
+    PaperUpdate,
+    PaperInDB,
+    PaperListResponse,
+    PaperStats,
+)
+from .skim import (
+    SkimCardResponse,
+    SkimDecisionRequest,
+    SkimGenerateRequest,
+)
+from .enhance import (
+    EnhanceRequest,
+    TermExplainRequest,
+    TermExplanation,
+    FigureExplanation,
+    EquationExplanation,
+    MissingDetailItem,
+    MissingDetailsResponse,
+    EnhanceResponse,
+)
 
 __all__ = [
     # Paper
-    'PaperCreate', 'PaperUpdate', 'PaperResponse', 'PaperListResponse',
-    'PaperImportRequest', 'PaperImportResponse',
-    # Anchor
-    'AnchorResponse', 'AnchorListResponse',
-    # Card
-    'CardCreate', 'CardUpdate', 'CardResponse', 'CardListResponse',
-    # Enhance
-    'EnhanceRequest', 'EnhanceResponse', 'ExplanationLevel',
+    'PaperBase',
+    'PaperCreate',
+    'PaperUpdate',
+    'PaperInDB',
+    'PaperListResponse',
+    'PaperStats',
     # Skim
-    'SkimCardResponse', 'SkimDecisionRequest',
+    'SkimCardResponse',
+    'SkimDecisionRequest',
+    'SkimGenerateRequest',
+    # Enhance
+    'EnhanceRequest',
+    'TermExplainRequest',
+    'TermExplanation',
+    'FigureExplanation',
+    'EquationExplanation',
+    'MissingDetailItem',
+    'MissingDetailsResponse',
+    'EnhanceResponse',
 ]
-
