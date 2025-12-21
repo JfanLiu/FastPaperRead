@@ -2,8 +2,8 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
-import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
-import 'react-pdf/dist/esm/Page/TextLayer.css';
+import 'react-pdf/dist/Page/AnnotationLayer.css';
+import 'react-pdf/dist/Page/TextLayer.css';
 import { cn } from '@/lib/utils';
 import {
   ZoomIn,
