@@ -212,14 +212,32 @@ async def get_paper_pdf(paper_id: str, db: Session = Depends(get_db)):
     if not paper.pdf_path:
         raise HTTPException(status_code=404, detail="PDF文件路径不存在")
     
-    # 检查文件是否存在
-    if not os.path.exists(paper.pdf_path):
-        logger.error(f"[PDF] PDF文件不存在: {paper.pdf_path}")
-        raise HTTPException(status_code=404, detail="PDF文件不存在")
+    # 处理路径 - 支持相对路径和绝对路径
+    pdf_path = paper.pdf_path
+    if not os.path.isabs(pdf_path):
+        # 相对路径：尝试多个可能的基础目录
+        possible_bases = [
+            os.getcwd(),  # 当前工作目录
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),  # app目录
+            settings.UPLOAD_DIR,  # 配置的上传目录
+        ]
+        for base in possible_bases:
+            full_path = os.path.normpath(os.path.join(base, pdf_path))
+            if os.path.exists(full_path):
+                pdf_path = full_path
+                break
+        else:
+            # 最后尝试直接使用原始路径
+            pdf_path = os.path.normpath(pdf_path)
     
-    logger.info(f"[PDF] 返回PDF文件: {paper.pdf_path}")
+    # 检查文件是否存在
+    if not os.path.exists(pdf_path):
+        logger.error(f"[PDF] PDF文件不存在: {pdf_path} (原始路径: {paper.pdf_path})")
+        raise HTTPException(status_code=404, detail=f"PDF文件不存在: {paper.pdf_path}")
+    
+    logger.info(f"[PDF] 返回PDF文件: {pdf_path}")
     return FileResponse(
-        path=paper.pdf_path,
+        path=pdf_path,
         media_type="application/pdf",
         filename=f"{paper.title or 'paper'}.pdf"
     )
