@@ -174,13 +174,15 @@ export const skimApi = {
   // 生成SkimCard
   generate: async (paperId: string, forceRegenerate: boolean = false): Promise<SkimCard> => {
     const res = await api.post(`/skim/${paperId}/generate?force=${forceRegenerate}`);
-    return res.data;
+    // 后端返回 { skim_card: {...}, cached: bool }
+    return res.data.skim_card;
   },
 
   // 获取SkimCard
   get: async (paperId: string): Promise<SkimCard> => {
     const res = await api.get(`/skim/${paperId}`);
-    return res.data;
+    // 后端返回 { skim_card: {...} }
+    return res.data.skim_card;
   },
 
   // 做出阅读决策

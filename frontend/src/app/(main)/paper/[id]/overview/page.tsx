@@ -145,7 +145,9 @@ export default function OverviewPage({ params }: PageProps) {
             {currentPaper.title}
           </h1>
           <div className="flex items-center gap-4 text-sm text-gray-500 mb-4">
-            <span>{currentPaper.authors.join(', ')}</span>
+            {currentPaper.authors && currentPaper.authors.length > 0 && (
+              <span>{currentPaper.authors.join(', ')}</span>
+            )}
             {currentPaper.year && <span>· {currentPaper.year}</span>}
             {currentPaper.venue && <span>· {currentPaper.venue}</span>}
           </div>
@@ -180,51 +182,59 @@ export default function OverviewPage({ params }: PageProps) {
           {skimCard ? (
             <div className="space-y-6">
               {/* Research Question */}
-              <div>
-                <h3 className="text-sm font-medium text-gray-500 mb-2">研究问题</h3>
-                <p className="text-gray-900">{skimCard.research_question}</p>
-              </div>
+              {skimCard.research_question && (
+                <div>
+                  <h3 className="text-sm font-medium text-gray-500 mb-2">研究问题</h3>
+                  <p className="text-gray-900">{skimCard.research_question}</p>
+                </div>
+              )}
 
               {/* Contributions */}
-              <div>
-                <h3 className="text-sm font-medium text-gray-500 mb-2">主要贡献</h3>
-                <ul className="space-y-2">
-                  {skimCard.contributions.map((c, i) => (
-                    <li key={i} className="flex items-start gap-2">
-                      <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
-                      <span className="text-gray-700">{c}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+              {skimCard.contributions && skimCard.contributions.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-medium text-gray-500 mb-2">主要贡献</h3>
+                  <ul className="space-y-2">
+                    {skimCard.contributions.map((c, i) => (
+                      <li key={i} className="flex items-start gap-2">
+                        <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
+                        <span className="text-gray-700">{c}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               {/* Evidence Strength */}
-              <div>
-                <h3 className="text-sm font-medium text-gray-500 mb-2">证据强度</h3>
-                <div className="flex items-center gap-2">
-                  <Badge
-                    variant={
-                      skimCard.evidence_strength === 'strong'
-                        ? 'success'
+              {skimCard.evidence_strength && (
+                <div>
+                  <h3 className="text-sm font-medium text-gray-500 mb-2">证据强度</h3>
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      variant={
+                        skimCard.evidence_strength === 'strong'
+                          ? 'success'
+                          : skimCard.evidence_strength === 'medium'
+                          ? 'warning'
+                          : 'danger'
+                      }
+                    >
+                      {skimCard.evidence_strength === 'strong'
+                        ? '强'
                         : skimCard.evidence_strength === 'medium'
-                        ? 'warning'
-                        : 'danger'
-                    }
-                  >
-                    {skimCard.evidence_strength === 'strong'
-                      ? '强'
-                      : skimCard.evidence_strength === 'medium'
-                      ? '中'
-                      : '弱'}
-                  </Badge>
-                  <span className="text-sm text-gray-600">
-                    {skimCard.evidence_strength_reason}
-                  </span>
+                        ? '中'
+                        : '弱'}
+                    </Badge>
+                    {skimCard.evidence_strength_reason && (
+                      <span className="text-sm text-gray-600">
+                        {skimCard.evidence_strength_reason}
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Red Flags */}
-              {skimCard.red_flags.length > 0 && (
+              {skimCard.red_flags && skimCard.red_flags.length > 0 && (
                 <div>
                   <h3 className="text-sm font-medium text-gray-500 mb-2">风险提示</h3>
                   <ul className="space-y-2">
@@ -239,16 +249,18 @@ export default function OverviewPage({ params }: PageProps) {
               )}
 
               {/* Recommended Route */}
-              <div>
-                <h3 className="text-sm font-medium text-gray-500 mb-2">推荐阅读路线</h3>
-                <div className="flex items-center gap-2 flex-wrap">
-                  {skimCard.recommended_sections.map((section) => (
-                    <Badge key={section} variant="info">
-                      {section}
-                    </Badge>
-                  ))}
+              {skimCard.recommended_sections && skimCard.recommended_sections.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-medium text-gray-500 mb-2">推荐阅读路线</h3>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {skimCard.recommended_sections.map((section) => (
+                      <Badge key={section} variant="info">
+                        {section}
+                      </Badge>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           ) : (
             <div className="text-center py-8">
