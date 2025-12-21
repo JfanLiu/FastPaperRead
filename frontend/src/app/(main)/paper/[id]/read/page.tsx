@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import { PDFViewer, AnchorList, EnhancePanel } from '@/components/reader';
 import { Button, Badge, Progress } from '@/components/common';
 import { cn } from '@/lib/utils';
-import { getPdfUrl } from '@/lib/api';
+import { getPdfUrl, paperApi, anchorApi, cardApi } from '@/lib/api';
 import type { Paper, Anchor, Card } from '@/types';
 import {
   ChevronLeft,
@@ -38,74 +38,36 @@ export default function ReadPage() {
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
 
   useEffect(() => {
-    // 模拟加载数据
+    // 从API加载真实数据
     const loadData = async () => {
       setIsLoading(true);
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Mock data
-      setPaper({
-        id: paperId,
-        title: 'Attention Is All You Need',
-        authors: ['Ashish Vaswani', 'Noam Shazeer', 'Niki Parmar'],
-        year: 2017,
-        venue: 'NeurIPS',
-        abstract: 'The dominant sequence transduction models...',
-        keywords: ['Transformer', 'Attention', 'NLP'],
-        source_type: 'arxiv',
-        source_value: '1706.03762',
-        status: 'deepread',
-        read_progress: 0.35,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      });
-      
-      // Mock anchors
-      setAnchors([
-        {
-          id: 'a1',
-          paper_id: paperId,
-          type: 'section',
-          section: 'Abstract',
-          text: 'The dominant sequence transduction models are based on complex recurrent or convolutional neural networks...',
-          page: 1,
-        },
-        {
-          id: 'a2',
-          paper_id: paperId,
-          type: 'section',
-          section: '1. Introduction',
-          page: 1,
-        },
-        {
-          id: 'a3',
-          paper_id: paperId,
-          type: 'figure',
-          section: '3. Model Architecture',
-          caption: 'Figure 1: The Transformer model architecture',
-          image_path: '/figures/transformer.png',
-          page: 3,
-        },
-        {
-          id: 'a4',
-          paper_id: paperId,
-          type: 'equation',
-          section: '3.2 Attention',
-          latex: 'Attention(Q, K, V) = softmax(\\frac{QK^T}{\\sqrt{d_k}})V',
-          text: 'Scaled Dot-Product Attention',
-          page: 4,
-        },
-        {
-          id: 'a5',
-          paper_id: paperId,
-          type: 'table',
-          section: '6. Results',
-          caption: 'Table 2: The Transformer achieves better BLEU scores than previous state-of-the-art models on the English-to-German and English-to-French newstest2014 tests at a fraction of the training cost.',
-          page: 8,
-        },
-      ]);
-      
-      setIsLoading(false);
+      try {
+        // 加载论文详情
+        const paperData = await paperApi.get(paperId);
+        setPaper(paperData);
+
+        // 加载锚点
+        try {
+          const anchorsResponse = await anchorApi.getByPaper(paperId);
+          setAnchors(anchorsResponse.items || []);
+        } catch (e) {
+          console.warn('加载锚点失败:', e);
+          setAnchors([]);
+        }
+
+        // 加载卡片
+        try {
+          const cardsResponse = await cardApi.getByPaper(paperId);
+          setCards(cardsResponse.items || []);
+        } catch (e) {
+          console.warn('加载卡片失败:', e);
+          setCards([]);
+        }
+      } catch (error) {
+        console.error('加载论文失败:', error);
+      } finally {
+        setIsLoading(false);
+      }
     };
 
     loadData();
