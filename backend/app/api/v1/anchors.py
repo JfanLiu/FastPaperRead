@@ -120,20 +120,30 @@ async def get_reading_route(paper_id: str, route_name: str, db: Session = Depend
         raise HTTPException(404, "路线不存在")
     
     route = routes[route_name]
+    must_section_list = route["must_sections"]
     
     # 从数据库获取章节锚点
     section_anchors = anchor_crud.get_sections(db, paper_id)
     
-    # 过滤必读章节
-    if route["must_sections"]:
+    # 过滤必读章节（仅对特定路线进行过滤）
+    if must_section_list:
         filtered = []
         for anchor in section_anchors:
             title = (anchor.text or "").lower()
-            for must in route["must_sections"]:
+            for must in must_section_list:
                 if must.lower() in title:
                     filtered.append(anchor)
                     break
         section_anchors = filtered
+    
+    def _check_must_read(title: str) -> bool:
+        """根据路线判断章节是否为必读"""
+        if must_section_list:
+            # 特定路线：被过滤保留的章节都是必读的
+            return True
+        else:
+            # 全文路线：使用通用必读判断逻辑
+            return _is_must_read_section(title)
     
     sections = [
         {
@@ -144,7 +154,7 @@ async def get_reading_route(paper_id: str, route_name: str, db: Session = Depend
             "page": a.page or 1,
             "children": [],
             "is_read": getattr(a, 'is_read', False),
-            "is_must_read": True
+            "is_must_read": _check_must_read(a.text or "")
         }
         for a in section_anchors
     ]
