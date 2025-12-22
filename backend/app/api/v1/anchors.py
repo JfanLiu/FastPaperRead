@@ -181,10 +181,6 @@ async def get_anchor(anchor_id: str, db: Session = Depends(get_db)):
 @router.post("/search")
 async def search_anchors(request: AnchorSearchRequest, db: Session = Depends(get_db)):
     """搜索锚点"""
-    # 获取所有锚点
-    all_anchors = db.query(anchor_crud.get.__self__.__class__).all() if hasattr(anchor_crud, 'get') else []
-    
-    # 获取所有论文的锚点（简化搜索）
     from ...db.models import AnchorModel
     query = db.query(AnchorModel)
     
