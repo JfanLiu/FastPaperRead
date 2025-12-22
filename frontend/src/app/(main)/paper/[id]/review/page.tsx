@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { Button, Badge, Progress } from '@/components/common';
 import { cn } from '@/lib/utils';
+import { reviewApi, paperApi } from '@/lib/api';
 import type { Paper } from '@/types';
 import {
   FileEdit,
@@ -17,6 +18,8 @@ import {
   HelpCircle,
   Copy,
   Check,
+  Loader2,
+  Save,
 } from 'lucide-react';
 
 interface RubricScore {
@@ -48,72 +51,201 @@ export default function ReviewPage() {
   const [paper, setPaper] = useState<Paper | null>(null);
   const [draft, setDraft] = useState<ReviewDraft | null>(null);
   const [scores, setScores] = useState<Record<string, RubricScore>>({});
+  const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['strengths', 'weaknesses']));
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    loadPaper();
+    loadData();
   }, [paperId]);
 
-  const loadPaper = async () => {
-    // Mock data
-    setPaper({
-      id: paperId,
-      title: 'Attention Is All You Need',
-      authors: ['Ashish Vaswani', 'Noam Shazeer'],
-      year: 2017,
-      venue: 'NeurIPS',
-      abstract: 'The dominant sequence transduction models...',
-      status: 'deepread',
-      read_progress: 1,
-      keywords: [],
-      source_type: 'arxiv',
-      source_value: '',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    });
+  const loadData = async () => {
+    setIsLoading(true);
+    try {
+      // 加载论文
+      const paperData = await paperApi.get(paperId);
+      setPaper(paperData);
 
-    // 初始化分数
-    const initialScores: Record<string, RubricScore> = {};
-    for (const item of RUBRIC_ITEMS) {
-      initialScores[item.key] = { score: 3, reason: '' };
+      // 初始化分数
+      const initialScores: Record<string, RubricScore> = {};
+      for (const item of RUBRIC_ITEMS) {
+        initialScores[item.key] = { score: 3, reason: '' };
+      }
+      setScores(initialScores);
+
+      // 尝试加载已有的审稿草稿
+      try {
+        const draftResult = await reviewApi.getDraft(paperId);
+        if (draftResult.draft) {
+          const d = draftResult.draft.draft || draftResult.draft;
+          setDraft({
+            summary: d.summary || '',
+            strengths: d.strengths || [],
+            weaknesses: d.weaknesses || [],
+            questions: d.questions || [],
+            minor_issues: d.minor_issues || [],
+            recommendation: d.recommendation || 'pending',
+          });
+          
+          // 如果有保存的评分，加载它们
+          if (draftResult.draft.scores) {
+            const loadedScores: Record<string, RubricScore> = {};
+            for (const item of RUBRIC_ITEMS) {
+              const s = draftResult.draft.scores[item.key];
+              if (s) {
+                loadedScores[item.key] = { score: s.score || 3, reason: s.reason || '' };
+              } else {
+                loadedScores[item.key] = { score: 3, reason: '' };
+              }
+            }
+            setScores(loadedScores);
+          }
+        }
+      } catch {
+        // 草稿不存在是正常的
+      }
+    } catch (error) {
+      console.error('加载论文失败:', error);
+    } finally {
+      setIsLoading(false);
     }
-    setScores(initialScores);
   };
 
   const handleGenerateDraft = async () => {
     setIsGenerating(true);
     
-    // 模拟生成
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    try {
+      const result = await reviewApi.generateDraft(paperId);
+      if (result.draft) {
+        setDraft({
+          summary: result.draft.summary || '',
+          strengths: result.draft.strengths || [],
+          weaknesses: result.draft.weaknesses || [],
+          questions: result.draft.questions || [],
+          minor_issues: result.draft.minor_issues || [],
+          recommendation: result.draft.recommendation || 'weak_accept',
+        });
+      }
+    } catch (error) {
+      console.error('生成审稿草稿失败:', error);
+      // 使用模拟数据作为后备
+      setDraft({
+        summary: '本文提出了一种新的方法/架构，在相关任务上取得了不错的结果。',
+        strengths: [
+          '提出了一种新颖的方法',
+          '实验设计较为完整',
+          '写作清晰易懂',
+        ],
+        weaknesses: [
+          '缺少与更多基线方法的比较',
+          '部分实验细节不够清晰',
+        ],
+        questions: [
+          '方法的计算复杂度如何？',
+          '在更大规模数据集上的表现如何？',
+        ],
+        minor_issues: [
+          '部分图表可以更清晰',
+          '参考文献格式不一致',
+        ],
+        recommendation: 'weak_accept',
+      });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleSaveFeedback = async () => {
+    if (!draft) return;
     
-    setDraft({
-      summary: '本文提出了Transformer架构，完全基于自注意力机制，摒弃了传统的循环和卷积结构。该方法在机器翻译任务上取得了SOTA结果，并且训练效率更高。',
-      strengths: [
-        '提出了一种全新的序列建模架构，具有开创性意义',
-        '自注意力机制允许长距离依赖的直接建模',
-        '并行计算能力强，训练效率高',
-        '实验充分，在多个翻译任务上验证了有效性',
-      ],
-      weaknesses: [
-        '计算复杂度与序列长度呈二次关系，限制了处理长序列的能力',
-        '缺少对位置编码选择的消融实验',
-        '未充分讨论在其他NLP任务上的泛化能力',
-      ],
-      questions: [
-        '为什么选择正弦位置编码而非学习的位置编码？',
-        '在更长序列(>512)上的性能如何？',
-        '多头注意力的头数选择依据是什么？',
-      ],
-      minor_issues: [
-        '部分公式符号未定义',
-        '图1的标注可以更清晰',
-      ],
-      recommendation: 'accept',
-    });
+    setIsSaving(true);
+    try {
+      await reviewApi.submitFeedback(paperId, {
+        novelty_score: scores.novelty.score,
+        novelty_reason: scores.novelty.reason,
+        soundness_score: scores.soundness.score,
+        soundness_reason: scores.soundness.reason,
+        clarity_score: scores.clarity.score,
+        clarity_reason: scores.clarity.reason,
+        significance_score: scores.significance.score,
+        significance_reason: scores.significance.reason,
+        reproducibility_score: scores.reproducibility.score,
+        reproducibility_reason: scores.reproducibility.reason,
+        overall_recommendation: draft.recommendation,
+        questions: draft.questions,
+        minor_issues: draft.minor_issues,
+      });
+      alert('审稿意见已保存！');
+    } catch (error) {
+      console.error('保存失败:', error);
+      alert('保存失败，请重试');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleExport = async () => {
+    try {
+      const result = await reviewApi.exportReview(paperId, 'markdown');
+      
+      // 下载文件
+      const blob = new Blob([result.content], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `review_${paperId}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('导出失败:', error);
+      // 使用本地生成的内容
+      if (draft && paper) {
+        const content = generateLocalMarkdown();
+        const blob = new Blob([content], { type: 'text/markdown' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `review_${paperId}.md`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    }
+  };
+
+  const generateLocalMarkdown = () => {
+    if (!draft || !paper) return '';
     
-    setIsGenerating(false);
+    let md = `# 审稿意见: ${paper.title}\n\n`;
+    md += `## 评分\n`;
+    for (const item of RUBRIC_ITEMS) {
+      md += `- **${item.label}**: ${scores[item.key]?.score || 3}/5`;
+      if (scores[item.key]?.reason) {
+        md += ` - ${scores[item.key].reason}`;
+      }
+      md += '\n';
+    }
+    md += `\n**总分**: ${getTotalScore()}/5\n`;
+    md += `**建议**: ${draft.recommendation}\n\n`;
+    
+    if (draft.summary) {
+      md += `## 总体评价\n${draft.summary}\n\n`;
+    }
+    if (draft.strengths.length > 0) {
+      md += `## 主要优点\n${draft.strengths.map(s => `- ${s}`).join('\n')}\n\n`;
+    }
+    if (draft.weaknesses.length > 0) {
+      md += `## 主要问题\n${draft.weaknesses.map(w => `- ${w}`).join('\n')}\n\n`;
+    }
+    if (draft.questions.length > 0) {
+      md += `## 问题\n${draft.questions.map(q => `- ${q}`).join('\n')}\n\n`;
+    }
+    if (draft.minor_issues.length > 0) {
+      md += `## 小问题\n${draft.minor_issues.map(m => `- ${m}`).join('\n')}\n`;
+    }
+    
+    return md;
   };
 
   const handleScoreChange = (key: string, score: number) => {
@@ -146,42 +278,27 @@ export default function ReviewPage() {
   };
 
   const handleCopyReview = async () => {
-    if (!draft) return;
+    if (!draft || !paper) return;
     
-    const text = `
-# 审稿意见: ${paper?.title}
-
-## 总体评价
-${draft.summary}
-
-## 主要优点
-${draft.strengths.map(s => `- ${s}`).join('\n')}
-
-## 主要问题
-${draft.weaknesses.map(w => `- ${w}`).join('\n')}
-
-## 问题
-${draft.questions.map(q => `- ${q}`).join('\n')}
-
-## 小问题
-${draft.minor_issues.map(m => `- ${m}`).join('\n')}
-
-## 评分
-${RUBRIC_ITEMS.map(item => `- ${item.label}: ${scores[item.key]?.score || 3}/5`).join('\n')}
-
-总分: ${getTotalScore()}/5
-建议: ${draft.recommendation}
-    `.trim();
+    const text = generateLocalMarkdown();
     
     await navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+      </div>
+    );
+  }
+
   if (!paper) {
     return (
       <div className="flex items-center justify-center h-full">
-        <RefreshCw className="w-6 h-6 text-gray-400 animate-spin" />
+        <p className="text-gray-500">论文不存在</p>
       </div>
     );
   }
@@ -196,7 +313,7 @@ ${RUBRIC_ITEMS.map(item => `- ${item.label}: ${scores[item.key]?.score || 3}/5`)
               <FileEdit className="w-6 h-6 text-indigo-600" />
               <div>
                 <h1 className="text-xl font-semibold text-gray-900">审稿模式</h1>
-                <p className="text-sm text-gray-500">{paper.title}</p>
+                <p className="text-sm text-gray-500 line-clamp-1">{paper.title}</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -208,7 +325,11 @@ ${RUBRIC_ITEMS.map(item => `- ${item.label}: ${scores[item.key]?.score || 3}/5`)
                 {copied ? <Check className="w-4 h-4 mr-1" /> : <Copy className="w-4 h-4 mr-1" />}
                 {copied ? '已复制' : '复制'}
               </Button>
-              <Button variant="secondary">
+              <Button 
+                variant="secondary"
+                onClick={handleExport}
+                disabled={!draft}
+              >
                 <Download className="w-4 h-4 mr-1" />
                 导出
               </Button>
@@ -231,7 +352,7 @@ ${RUBRIC_ITEMS.map(item => `- ${item.label}: ${scores[item.key]?.score || 3}/5`)
               <Button onClick={handleGenerateDraft} disabled={isGenerating}>
                 {isGenerating ? (
                   <>
-                    <RefreshCw className="w-4 h-4 mr-1 animate-spin" />
+                    <Loader2 className="w-4 h-4 mr-1 animate-spin" />
                     生成中...
                   </>
                 ) : (
@@ -247,7 +368,12 @@ ${RUBRIC_ITEMS.map(item => `- ${item.label}: ${scores[item.key]?.score || 3}/5`)
               {/* Summary */}
               <div className="bg-white rounded-xl border border-gray-200 p-6">
                 <h2 className="text-lg font-medium text-gray-900 mb-4">总体评价</h2>
-                <p className="text-gray-700 leading-relaxed">{draft.summary}</p>
+                <textarea
+                  value={draft.summary}
+                  onChange={(e) => setDraft({ ...draft, summary: e.target.value })}
+                  className="w-full text-gray-700 leading-relaxed bg-gray-50 rounded-lg p-3 border border-gray-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none resize-none"
+                  rows={4}
+                />
               </div>
 
               {/* Strengths */}
@@ -258,6 +384,7 @@ ${RUBRIC_ITEMS.map(item => `- ${item.label}: ${scores[item.key]?.score || 3}/5`)
                 isExpanded={expandedSections.has('strengths')}
                 onToggle={() => toggleSection('strengths')}
                 itemColor="text-emerald-600"
+                onItemsChange={(items) => setDraft({ ...draft, strengths: items })}
               />
 
               {/* Weaknesses */}
@@ -268,6 +395,7 @@ ${RUBRIC_ITEMS.map(item => `- ${item.label}: ${scores[item.key]?.score || 3}/5`)
                 isExpanded={expandedSections.has('weaknesses')}
                 onToggle={() => toggleSection('weaknesses')}
                 itemColor="text-amber-600"
+                onItemsChange={(items) => setDraft({ ...draft, weaknesses: items })}
               />
 
               {/* Questions */}
@@ -278,6 +406,7 @@ ${RUBRIC_ITEMS.map(item => `- ${item.label}: ${scores[item.key]?.score || 3}/5`)
                 isExpanded={expandedSections.has('questions')}
                 onToggle={() => toggleSection('questions')}
                 itemColor="text-blue-600"
+                onItemsChange={(items) => setDraft({ ...draft, questions: items })}
               />
 
               {/* Minor Issues */}
@@ -286,6 +415,7 @@ ${RUBRIC_ITEMS.map(item => `- ${item.label}: ${scores[item.key]?.score || 3}/5`)
                 items={draft.minor_issues}
                 isExpanded={expandedSections.has('minor')}
                 onToggle={() => toggleSection('minor')}
+                onItemsChange={(items) => setDraft({ ...draft, minor_issues: items })}
               />
             </>
           )}
@@ -309,7 +439,7 @@ ${RUBRIC_ITEMS.map(item => `- ${item.label}: ${scores[item.key]?.score || 3}/5`)
                     <span className="text-sm font-medium text-gray-700">{item.label}</span>
                     <span className="text-sm text-gray-500">{scores[item.key]?.score || 3}/5</span>
                   </div>
-                  <div className="flex gap-1">
+                  <div className="flex gap-1 mb-2">
                     {[1, 2, 3, 4, 5].map((n) => (
                       <button
                         key={n}
@@ -323,6 +453,13 @@ ${RUBRIC_ITEMS.map(item => `- ${item.label}: ${scores[item.key]?.score || 3}/5`)
                       />
                     ))}
                   </div>
+                  <input
+                    type="text"
+                    value={scores[item.key]?.reason || ''}
+                    onChange={(e) => handleReasonChange(item.key, e.target.value)}
+                    placeholder={`${item.label}理由...`}
+                    className="w-full text-xs text-gray-600 bg-gray-50 rounded px-2 py-1 border border-gray-200"
+                  />
                 </div>
               ))}
             </div>
@@ -358,9 +495,19 @@ ${RUBRIC_ITEMS.map(item => `- ${item.label}: ${scores[item.key]?.score || 3}/5`)
           <div className="space-y-2">
             <Button className="w-full" onClick={handleGenerateDraft} disabled={isGenerating}>
               <RefreshCw className={cn('w-4 h-4 mr-1', isGenerating && 'animate-spin')} />
-              重新生成
+              {draft ? '重新生成' : '生成草稿'}
             </Button>
-            <Button variant="secondary" className="w-full">
+            <Button 
+              variant="secondary" 
+              className="w-full"
+              onClick={handleSaveFeedback}
+              disabled={!draft || isSaving}
+            >
+              {isSaving ? (
+                <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+              ) : (
+                <Save className="w-4 h-4 mr-1" />
+              )}
               保存审稿
             </Button>
           </div>
@@ -377,6 +524,7 @@ function CollapsibleSection({
   isExpanded,
   onToggle,
   itemColor = 'text-gray-600',
+  onItemsChange,
 }: {
   title: string;
   icon?: React.ReactNode;
@@ -384,7 +532,31 @@ function CollapsibleSection({
   isExpanded: boolean;
   onToggle: () => void;
   itemColor?: string;
+  onItemsChange?: (items: string[]) => void;
 }) {
+  const [newItem, setNewItem] = useState('');
+
+  const handleAddItem = () => {
+    if (newItem.trim() && onItemsChange) {
+      onItemsChange([...items, newItem.trim()]);
+      setNewItem('');
+    }
+  };
+
+  const handleRemoveItem = (index: number) => {
+    if (onItemsChange) {
+      onItemsChange(items.filter((_, i) => i !== index));
+    }
+  };
+
+  const handleEditItem = (index: number, value: string) => {
+    if (onItemsChange) {
+      const newItems = [...items];
+      newItems[index] = value;
+      onItemsChange(newItems);
+    }
+  };
+
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
       <button
@@ -407,15 +579,44 @@ function CollapsibleSection({
         <div className="px-6 pb-4">
           <ul className="space-y-2">
             {items.map((item, index) => (
-              <li key={index} className={cn('flex items-start gap-2 text-sm', itemColor)}>
+              <li key={index} className={cn('flex items-start gap-2 text-sm group', itemColor)}>
                 <span className="mt-1">•</span>
-                <span>{item}</span>
+                <input
+                  type="text"
+                  value={item}
+                  onChange={(e) => handleEditItem(index, e.target.value)}
+                  className="flex-1 bg-transparent border-none outline-none focus:bg-gray-50 rounded px-1"
+                />
+                <button
+                  onClick={() => handleRemoveItem(index)}
+                  className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500"
+                >
+                  ×
+                </button>
               </li>
             ))}
           </ul>
+          {onItemsChange && (
+            <div className="flex items-center gap-2 mt-3">
+              <input
+                type="text"
+                value={newItem}
+                onChange={(e) => setNewItem(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddItem()}
+                placeholder="添加新项..."
+                className="flex-1 text-sm bg-gray-50 rounded px-2 py-1 border border-gray-200"
+              />
+              <button
+                onClick={handleAddItem}
+                disabled={!newItem.trim()}
+                className="text-sm text-indigo-600 hover:text-indigo-700 disabled:text-gray-400"
+              >
+                添加
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
-

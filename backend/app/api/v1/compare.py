@@ -1,14 +1,16 @@
 """
-论文比较API端点 - 完整实现
+论文比较API端点 - 数据库持久化实现
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
+import uuid
 
 from ...api.deps import get_db, get_enhancer
 from ...crud import paper_crud, skim_crud
 from ...core.llm import ContentEnhancer
+from ...db.models import CompareSetModel
 
 router = APIRouter()
 
@@ -37,8 +39,14 @@ class CompareMatrixResponse(BaseModel):
     summary: str
 
 
-# 内存存储（生产环境应使用数据库）
-_compare_sets = {}
+DEFAULT_DIMENSIONS = [
+    "研究问题",
+    "方法",
+    "数据集",
+    "评估指标",
+    "主要结果",
+    "局限性"
+]
 
 
 @router.post("/sets", response_model=dict)
@@ -64,28 +72,51 @@ async def create_compare_set(
         })
     
     # 创建集合
-    import uuid
-    set_id = str(uuid.uuid4())
-    
-    _compare_sets[set_id] = {
-        "id": set_id,
-        "name": request.name,
-        "paper_ids": request.paper_ids,
-        "dimensions": request.dimensions or [
-            "研究问题",
-            "方法",
-            "数据集",
-            "评估指标",
-            "主要结果",
-            "局限性"
-        ]
-    }
+    compare_set = CompareSetModel(
+        id=str(uuid.uuid4()),
+        name=request.name,
+        paper_ids=request.paper_ids,
+        dimensions=request.dimensions or DEFAULT_DIMENSIONS
+    )
+    db.add(compare_set)
+    db.commit()
+    db.refresh(compare_set)
     
     return {
-        "id": set_id,
-        "name": request.name,
+        "id": compare_set.id,
+        "name": compare_set.name,
         "paper_count": len(papers),
         "papers": papers
+    }
+
+
+@router.get("/sets", response_model=dict)
+async def list_compare_sets(
+    skip: int = 0,
+    limit: int = 20,
+    db: Session = Depends(get_db)
+):
+    """
+    获取所有对比集合
+    """
+    query = db.query(CompareSetModel).order_by(CompareSetModel.updated_at.desc())
+    total = query.count()
+    sets = query.offset(skip).limit(limit).all()
+    
+    items = []
+    for s in sets:
+        items.append({
+            "id": s.id,
+            "name": s.name,
+            "paper_ids": s.paper_ids,
+            "paper_count": len(s.paper_ids or []),
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+            "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+        })
+    
+    return {
+        "items": items,
+        "total": total
     }
 
 
@@ -97,14 +128,13 @@ async def get_compare_set(
     """
     获取对比集合
     """
-    if set_id not in _compare_sets:
+    compare_set = db.query(CompareSetModel).filter(CompareSetModel.id == set_id).first()
+    if not compare_set:
         raise HTTPException(status_code=404, detail="对比集合不存在")
-    
-    compare_set = _compare_sets[set_id]
     
     # 获取论文详情
     papers = []
-    for paper_id in compare_set["paper_ids"]:
+    for paper_id in compare_set.paper_ids or []:
         paper = paper_crud.get(db, paper_id)
         if paper:
             papers.append({
@@ -116,9 +146,35 @@ async def get_compare_set(
             })
     
     return {
-        **compare_set,
-        "papers": papers
+        "id": compare_set.id,
+        "name": compare_set.name,
+        "paper_ids": compare_set.paper_ids,
+        "dimensions": compare_set.dimensions,
+        "papers": papers,
+        "matrix": compare_set.matrix,
+        "conflicts": compare_set.conflicts,
+        "summary": compare_set.summary,
+        "created_at": compare_set.created_at.isoformat() if compare_set.created_at else None,
+        "updated_at": compare_set.updated_at.isoformat() if compare_set.updated_at else None,
     }
+
+
+@router.delete("/sets/{set_id}")
+async def delete_compare_set(
+    set_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    删除对比集合
+    """
+    compare_set = db.query(CompareSetModel).filter(CompareSetModel.id == set_id).first()
+    if not compare_set:
+        raise HTTPException(status_code=404, detail="对比集合不存在")
+    
+    db.delete(compare_set)
+    db.commit()
+    
+    return {"message": "已删除", "id": set_id}
 
 
 @router.post("/sets/{set_id}/papers/{paper_id}")
@@ -130,34 +186,51 @@ async def add_paper_to_set(
     """
     添加论文到对比集合
     """
-    if set_id not in _compare_sets:
+    compare_set = db.query(CompareSetModel).filter(CompareSetModel.id == set_id).first()
+    if not compare_set:
         raise HTTPException(status_code=404, detail="对比集合不存在")
     
     paper = paper_crud.get(db, paper_id)
     if not paper:
         raise HTTPException(status_code=404, detail="论文不存在")
     
-    if paper_id not in _compare_sets[set_id]["paper_ids"]:
-        _compare_sets[set_id]["paper_ids"].append(paper_id)
+    paper_ids = compare_set.paper_ids or []
+    if paper_id not in paper_ids:
+        paper_ids.append(paper_id)
+        compare_set.paper_ids = paper_ids
+        # 清除旧的矩阵缓存
+        compare_set.matrix = None
+        compare_set.conflicts = None
+        compare_set.summary = None
+        db.commit()
     
-    return {"message": "已添加", "paper_count": len(_compare_sets[set_id]["paper_ids"])}
+    return {"message": "已添加", "paper_count": len(compare_set.paper_ids)}
 
 
 @router.delete("/sets/{set_id}/papers/{paper_id}")
 async def remove_paper_from_set(
     set_id: str,
-    paper_id: str
+    paper_id: str,
+    db: Session = Depends(get_db)
 ):
     """
     从对比集合移除论文
     """
-    if set_id not in _compare_sets:
+    compare_set = db.query(CompareSetModel).filter(CompareSetModel.id == set_id).first()
+    if not compare_set:
         raise HTTPException(status_code=404, detail="对比集合不存在")
     
-    if paper_id in _compare_sets[set_id]["paper_ids"]:
-        _compare_sets[set_id]["paper_ids"].remove(paper_id)
+    paper_ids = compare_set.paper_ids or []
+    if paper_id in paper_ids:
+        paper_ids.remove(paper_id)
+        compare_set.paper_ids = paper_ids
+        # 清除旧的矩阵缓存
+        compare_set.matrix = None
+        compare_set.conflicts = None
+        compare_set.summary = None
+        db.commit()
     
-    return {"message": "已移除", "paper_count": len(_compare_sets[set_id]["paper_ids"])}
+    return {"message": "已移除", "paper_count": len(compare_set.paper_ids)}
 
 
 @router.post("/sets/{set_id}/matrix", response_model=dict)
@@ -170,19 +243,17 @@ async def generate_compare_matrix(
     """
     生成对比矩阵
     """
-    if set_id not in _compare_sets:
+    compare_set = db.query(CompareSetModel).filter(CompareSetModel.id == set_id).first()
+    if not compare_set:
         raise HTTPException(status_code=404, detail="对比集合不存在")
     
-    compare_set = _compare_sets[set_id]
-    paper_ids = compare_set["paper_ids"]
+    paper_ids = compare_set.paper_ids or []
     
     if len(paper_ids) < 2:
         raise HTTPException(status_code=400, detail="至少需要2篇论文进行比较")
     
     # 使用指定维度或默认维度
-    compare_dimensions = dimensions or compare_set.get("dimensions", [
-        "研究问题", "方法", "数据集", "评估指标", "主要结果", "局限性"
-    ])
+    compare_dimensions = dimensions or compare_set.dimensions or DEFAULT_DIMENSIONS
     
     # 收集论文信息
     papers_info = []
@@ -239,6 +310,12 @@ async def generate_compare_matrix(
     
     # 生成摘要
     summary = _generate_comparison_summary(papers_info, matrix, conflicts)
+    
+    # 保存结果到数据库
+    compare_set.matrix = matrix
+    compare_set.conflicts = conflicts
+    compare_set.summary = summary
+    db.commit()
     
     return {
         "set_id": set_id,

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Button, Badge, Input, Modal } from '@/components/common';
 import { cn } from '@/lib/utils';
+import { compareApi, paperApi } from '@/lib/api';
 import type { Paper } from '@/types';
 import {
   Plus,
@@ -15,11 +16,22 @@ import {
   ChevronRight,
   Download,
   RefreshCw,
+  Loader2,
+  Save,
 } from 'lucide-react';
 
 interface CompareItem {
   paper: Paper;
   values: Record<string, string>;
+}
+
+interface MatrixRow {
+  dimension: string;
+  values: Array<{
+    paper_id: string;
+    paper_title: string;
+    value: string;
+  }>;
 }
 
 const DEFAULT_DIMENSIONS = [
@@ -37,84 +49,197 @@ export default function ComparePage() {
   const paperId = params.id as string;
 
   const [papers, setPapers] = useState<Paper[]>([]);
-  const [dimensions, setDimensions] = useState<string[]>(DEFAULT_DIMENSIONS);
-  const [matrix, setMatrix] = useState<Record<string, Record<string, string>>>({});
+  const [dimensions] = useState<string[]>(DEFAULT_DIMENSIONS);
+  const [matrix, setMatrix] = useState<MatrixRow[]>([]);
   const [conflicts, setConflicts] = useState<string[]>([]);
+  const [summary, setSummary] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [showAddPaper, setShowAddPaper] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Paper[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [compareSetId, setCompareSetId] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    // 加载当前论文
     loadCurrentPaper();
   }, [paperId]);
 
-  const loadCurrentPaper = async () => {
-    // Mock data
-    const mockPaper: Paper = {
-      id: paperId,
-      title: 'Attention Is All You Need',
-      authors: ['Vaswani et al.'],
-      year: 2017,
-      venue: 'NeurIPS',
-      status: 'deepread',
-      read_progress: 1,
-      keywords: [],
-      source_type: 'arxiv',
-      source_value: '',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+  // 搜索论文
+  useEffect(() => {
+    const searchPapers = async () => {
+      if (!searchQuery.trim()) {
+        setSearchResults([]);
+        return;
+      }
+      
+      setIsSearching(true);
+      try {
+        const result = await paperApi.list({ search: searchQuery, limit: 10 });
+        // 过滤掉已添加的论文
+        const filtered = (result.items || result.papers || []).filter(
+          (p: Paper) => !papers.find(existing => existing.id === p.id)
+        );
+        setSearchResults(filtered);
+      } catch (error) {
+        console.error('搜索论文失败:', error);
+      } finally {
+        setIsSearching(false);
+      }
     };
-    setPapers([mockPaper]);
+
+    const timer = setTimeout(searchPapers, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, papers]);
+
+  const loadCurrentPaper = async () => {
+    setIsLoading(true);
+    try {
+      const paper = await paperApi.get(paperId);
+      setPapers([paper]);
+    } catch (error) {
+      console.error('加载论文失败:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleAddPaper = (paper: Paper) => {
     if (!papers.find(p => p.id === paper.id)) {
       setPapers([...papers, paper]);
+      // 清除旧的比较结果
+      setMatrix([]);
+      setConflicts([]);
+      setSummary('');
     }
     setShowAddPaper(false);
+    setSearchQuery('');
   };
 
-  const handleRemovePaper = (paperId: string) => {
-    setPapers(papers.filter(p => p.id !== paperId));
+  const handleRemovePaper = (removePaperId: string) => {
+    setPapers(papers.filter(p => p.id !== removePaperId));
+    // 清除旧的比较结果
+    setMatrix([]);
+    setConflicts([]);
+    setSummary('');
   };
 
   const handleGenerateMatrix = async () => {
     if (papers.length < 2) return;
     
-    setIsLoading(true);
+    setIsGenerating(true);
     
-    // 模拟生成
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    const mockMatrix: Record<string, Record<string, string>> = {};
-    const mockConflicts: string[] = [];
-    
-    for (const dim of dimensions) {
-      mockMatrix[dim] = {};
-      const values: string[] = [];
-      
-      for (const paper of papers) {
-        const value = `${paper.title.slice(0, 20)}的${dim}...`;
-        mockMatrix[dim][paper.id] = value;
-        values.push(value);
+    try {
+      // 如果没有保存的集合，先创建一个
+      let setId = compareSetId;
+      if (!setId) {
+        const createResult = await compareApi.createSet(
+          `对比: ${papers.map(p => p.title.slice(0, 20)).join(' vs ')}`,
+          papers.map(p => p.id)
+        );
+        setId = createResult.id;
+        setCompareSetId(setId);
       }
       
-      // 检测冲突
-      if (new Set(values).size > 1 && Math.random() > 0.5) {
-        mockConflicts.push(dim);
-      }
+      // 生成对比矩阵
+      const result = await compareApi.generateMatrix(setId, dimensions);
+      
+      setMatrix(result.matrix || []);
+      setConflicts((result.conflicts || []).map((c: { dimension: string }) => c.dimension));
+      setSummary(result.summary || '');
+    } catch (error) {
+      console.error('生成对比失败:', error);
+      // 如果API失败，使用本地模拟
+      generateLocalMatrix();
+    } finally {
+      setIsGenerating(false);
     }
+  };
+
+  const generateLocalMatrix = () => {
+    const mockMatrix: MatrixRow[] = dimensions.map(dim => ({
+      dimension: dim,
+      values: papers.map(paper => ({
+        paper_id: paper.id,
+        paper_title: paper.title,
+        value: `${paper.title.slice(0, 20)}的${dim}...`,
+      }))
+    }));
+    
+    const mockConflicts = dimensions.filter(() => Math.random() > 0.5);
     
     setMatrix(mockMatrix);
     setConflicts(mockConflicts);
-    setIsLoading(false);
+    setSummary(`比较了 ${papers.length} 篇论文。`);
+  };
+
+  const handleSaveSet = async () => {
+    if (papers.length < 2) return;
+    
+    setIsSaving(true);
+    try {
+      const result = await compareApi.createSet(
+        `对比: ${papers.map(p => p.title.slice(0, 20)).join(' vs ')}`,
+        papers.map(p => p.id)
+      );
+      setCompareSetId(result.id);
+      alert('对比集合已保存！');
+    } catch (error) {
+      console.error('保存失败:', error);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleExport = () => {
-    // TODO: 导出比较结果
-    console.log('Export comparison');
+    if (matrix.length === 0) return;
+    
+    // 生成Markdown内容
+    let md = `# 论文对比\n\n`;
+    md += `## 对比论文\n`;
+    papers.forEach((p, i) => {
+      md += `${i + 1}. ${p.title} (${p.year || 'N/A'})\n`;
+    });
+    md += `\n## 对比矩阵\n\n`;
+    
+    // 表头
+    md += `| 维度 | ${papers.map(p => p.title.slice(0, 20)).join(' | ')} |\n`;
+    md += `| --- | ${papers.map(() => '---').join(' | ')} |\n`;
+    
+    // 表格内容
+    matrix.forEach(row => {
+      md += `| ${row.dimension} | ${row.values.map(v => v.value || '-').join(' | ')} |\n`;
+    });
+    
+    if (conflicts.length > 0) {
+      md += `\n## 差异维度\n`;
+      conflicts.forEach(c => {
+        md += `- ${c}\n`;
+      });
+    }
+    
+    if (summary) {
+      md += `\n## 总结\n${summary}\n`;
+    }
+    
+    // 下载文件
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `compare_${new Date().toISOString().slice(0, 10)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -138,16 +263,32 @@ export default function ComparePage() {
               </Button>
               <Button
                 onClick={handleGenerateMatrix}
-                disabled={papers.length < 2 || isLoading}
+                disabled={papers.length < 2 || isGenerating}
               >
-                {isLoading ? (
-                  <RefreshCw className="w-4 h-4 mr-1 animate-spin" />
+                {isGenerating ? (
+                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
                 ) : (
                   <GitCompare className="w-4 h-4 mr-1" />
                 )}
                 生成对比
               </Button>
-              <Button variant="secondary" onClick={handleExport}>
+              <Button 
+                variant="secondary" 
+                onClick={handleSaveSet}
+                disabled={papers.length < 2 || isSaving}
+              >
+                {isSaving ? (
+                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                ) : (
+                  <Save className="w-4 h-4 mr-1" />
+                )}
+                保存
+              </Button>
+              <Button 
+                variant="secondary" 
+                onClick={handleExport}
+                disabled={matrix.length === 0}
+              >
                 <Download className="w-4 h-4 mr-1" />
                 导出
               </Button>
@@ -196,6 +337,13 @@ export default function ComparePage() {
           )}
         </div>
 
+        {/* Summary */}
+        {summary && (
+          <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 mb-6">
+            <p className="text-indigo-700">{summary}</p>
+          </div>
+        )}
+
         {/* Conflicts Alert */}
         {conflicts.length > 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
@@ -212,7 +360,7 @@ export default function ComparePage() {
         )}
 
         {/* Comparison Matrix */}
-        {Object.keys(matrix).length > 0 && (
+        {matrix.length > 0 && (
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -230,19 +378,19 @@ export default function ComparePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {dimensions.map((dim) => (
-                    <tr key={dim} className="border-b border-gray-100 last:border-0">
+                  {matrix.map((row) => (
+                    <tr key={row.dimension} className="border-b border-gray-100 last:border-0">
                       <td className="px-6 py-4 font-medium text-gray-900 bg-gray-50">
                         <div className="flex items-center gap-2">
-                          {dim}
-                          {conflicts.includes(dim) && (
+                          {row.dimension}
+                          {conflicts.includes(row.dimension) && (
                             <AlertTriangle className="w-4 h-4 text-amber-500" />
                           )}
                         </div>
                       </td>
-                      {papers.map((paper) => (
-                        <td key={paper.id} className="px-6 py-4 text-gray-700">
-                          {matrix[dim]?.[paper.id] || '-'}
+                      {row.values.map((val) => (
+                        <td key={val.paper_id} className="px-6 py-4 text-gray-700">
+                          {val.value || '-'}
                         </td>
                       ))}
                     </tr>
@@ -254,7 +402,7 @@ export default function ComparePage() {
         )}
 
         {/* Empty State */}
-        {papers.length >= 2 && Object.keys(matrix).length === 0 && !isLoading && (
+        {papers.length >= 2 && matrix.length === 0 && !isGenerating && (
           <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
             <GitCompare className="w-12 h-12 mx-auto mb-4 text-gray-400" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">准备就绪</h3>
@@ -282,28 +430,38 @@ export default function ComparePage() {
           </div>
           
           <div className="space-y-2 max-h-60 overflow-y-auto">
-            {/* Mock search results */}
-            {[
-              { id: 'p2', title: 'BERT: Pre-training of Deep Bidirectional Transformers', year: 2019 },
-              { id: 'p3', title: 'GPT-3: Language Models are Few-Shot Learners', year: 2020 },
-              { id: 'p4', title: 'Vision Transformer', year: 2021 },
-            ].map((paper) => (
-              <button
-                key={paper.id}
-                onClick={() => handleAddPaper(paper as Paper)}
-                className="w-full flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg text-left"
-              >
-                <div>
-                  <div className="font-medium text-gray-900">{paper.title}</div>
-                  <div className="text-sm text-gray-500">{paper.year}</div>
-                </div>
-                <ChevronRight className="w-4 h-4 text-gray-400" />
-              </button>
-            ))}
+            {isSearching ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="w-5 h-5 text-gray-400 animate-spin" />
+              </div>
+            ) : searchResults.length > 0 ? (
+              searchResults.map((paper) => (
+                <button
+                  key={paper.id}
+                  onClick={() => handleAddPaper(paper)}
+                  className="w-full flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg text-left"
+                >
+                  <div>
+                    <div className="font-medium text-gray-900 line-clamp-1">{paper.title}</div>
+                    <div className="text-sm text-gray-500">
+                      {paper.authors?.slice(0, 2).join(', ')} • {paper.year || 'N/A'}
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-gray-400" />
+                </button>
+              ))
+            ) : searchQuery ? (
+              <div className="text-center py-4 text-gray-500">
+                没有找到匹配的论文
+              </div>
+            ) : (
+              <div className="text-center py-4 text-gray-500">
+                输入关键词搜索论文
+              </div>
+            )}
           </div>
         </div>
       </Modal>
     </div>
   );
 }
-

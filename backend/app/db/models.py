@@ -281,3 +281,58 @@ class ReadingQueueModel(Base):
     # 时间戳
     added_at = Column(DateTime, default=datetime.utcnow)
 
+
+class CompareSetModel(Base):
+    """论文对比集合表"""
+    __tablename__ = "compare_sets"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    name = Column(String(200), nullable=False)
+    paper_ids = Column(JSON, default=list)
+    dimensions = Column(JSON, default=list)
+    
+    # 对比结果缓存
+    matrix = Column(JSON, nullable=True)
+    conflicts = Column(JSON, nullable=True)
+    summary = Column(Text, nullable=True)
+    
+    # 时间戳
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ReviewModel(Base):
+    """审稿记录表"""
+    __tablename__ = "reviews"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    paper_id = Column(String(36), ForeignKey("papers.id"), nullable=False, unique=True)
+    
+    # 审稿草稿
+    summary = Column(Text, nullable=True)
+    strengths = Column(JSON, default=list)
+    weaknesses = Column(JSON, default=list)
+    questions = Column(JSON, default=list)
+    minor_issues = Column(JSON, default=list)
+    recommendation = Column(String(50), default="pending")
+    raw_text = Column(Text, nullable=True)
+    
+    # 评分
+    novelty_score = Column(Integer, nullable=True)
+    novelty_reason = Column(Text, nullable=True)
+    soundness_score = Column(Integer, nullable=True)
+    soundness_reason = Column(Text, nullable=True)
+    clarity_score = Column(Integer, nullable=True)
+    clarity_reason = Column(Text, nullable=True)
+    significance_score = Column(Integer, nullable=True)
+    significance_reason = Column(Text, nullable=True)
+    reproducibility_score = Column(Integer, nullable=True)
+    reproducibility_reason = Column(Text, nullable=True)
+    total_score = Column(Float, nullable=True)
+    
+    # 时间戳
+    generated_at = Column(DateTime, nullable=True)
+    submitted_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+

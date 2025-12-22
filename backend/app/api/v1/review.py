@@ -1,5 +1,5 @@
 """
-审稿模式API端点 - 完整实现
+审稿模式API端点 - 数据库持久化实现
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -10,6 +10,7 @@ from datetime import datetime
 from ...api.deps import get_db, get_enhancer
 from ...crud import paper_crud, skim_crud, card_crud
 from ...core.llm import ContentEnhancer
+from ...db.models import ReviewModel
 
 router = APIRouter()
 
@@ -37,8 +38,31 @@ class ReviewFeedback(BaseModel):
     minor_issues: list[str]
 
 
-# 内存存储审稿结果
-_review_drafts = {}
+def review_to_dict(review: ReviewModel, paper=None) -> dict:
+    """转换审稿模型为字典"""
+    return {
+        "paper_id": review.paper_id,
+        "paper_title": paper.title if paper else None,
+        "draft": {
+            "summary": review.summary,
+            "strengths": review.strengths or [],
+            "weaknesses": review.weaknesses or [],
+            "questions": review.questions or [],
+            "minor_issues": review.minor_issues or [],
+            "recommendation": review.recommendation,
+        },
+        "raw_text": review.raw_text,
+        "scores": {
+            "novelty": {"score": review.novelty_score, "reason": review.novelty_reason},
+            "soundness": {"score": review.soundness_score, "reason": review.soundness_reason},
+            "clarity": {"score": review.clarity_score, "reason": review.clarity_reason},
+            "significance": {"score": review.significance_score, "reason": review.significance_reason},
+            "reproducibility": {"score": review.reproducibility_score, "reason": review.reproducibility_reason},
+        } if review.novelty_score else None,
+        "total_score": review.total_score,
+        "generated_at": review.generated_at.isoformat() if review.generated_at else None,
+        "submitted_at": review.submitted_at.isoformat() if review.submitted_at else None,
+    }
 
 
 @router.post("/{paper_id}/draft", response_model=dict)
@@ -98,12 +122,23 @@ async def generate_review_draft(
     # 解析结构化审稿意见
     review_draft = _parse_review_draft(review_text, paper, skim)
     
-    # 存储
-    _review_drafts[paper_id] = {
-        **review_draft,
-        "generated_at": datetime.now().isoformat(),
-        "raw_text": review_text
-    }
+    # 保存或更新数据库
+    review = db.query(ReviewModel).filter(ReviewModel.paper_id == paper_id).first()
+    if not review:
+        review = ReviewModel(paper_id=paper_id)
+        db.add(review)
+    
+    review.summary = review_draft["summary"]
+    review.strengths = review_draft["strengths"]
+    review.weaknesses = review_draft["weaknesses"]
+    review.questions = review_draft["questions"]
+    review.minor_issues = review_draft["minor_issues"]
+    review.recommendation = review_draft["recommendation"]
+    review.raw_text = review_text
+    review.generated_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(review)
     
     return {
         "paper_id": paper_id,
@@ -113,16 +148,22 @@ async def generate_review_draft(
 
 
 @router.get("/{paper_id}/draft", response_model=dict)
-async def get_review_draft(paper_id: str):
+async def get_review_draft(
+    paper_id: str,
+    db: Session = Depends(get_db)
+):
     """
     获取审稿草稿
     """
-    if paper_id not in _review_drafts:
+    review = db.query(ReviewModel).filter(ReviewModel.paper_id == paper_id).first()
+    if not review:
         raise HTTPException(status_code=404, detail="审稿草稿不存在，请先生成")
+    
+    paper = paper_crud.get(db, paper_id)
     
     return {
         "paper_id": paper_id,
-        "draft": _review_drafts[paper_id]
+        "draft": review_to_dict(review, paper)
     }
 
 
@@ -148,28 +189,30 @@ async def submit_review_feedback(
         feedback.reproducibility_score
     ) / 5.0
     
-    # 存储反馈
-    review_data = {
-        "paper_id": paper_id,
-        "paper_title": paper.title,
-        "scores": {
-            "novelty": {"score": feedback.novelty_score, "reason": feedback.novelty_reason},
-            "soundness": {"score": feedback.soundness_score, "reason": feedback.soundness_reason},
-            "clarity": {"score": feedback.clarity_score, "reason": feedback.clarity_reason},
-            "significance": {"score": feedback.significance_score, "reason": feedback.significance_reason},
-            "reproducibility": {"score": feedback.reproducibility_score, "reason": feedback.reproducibility_reason},
-        },
-        "total_score": round(total_score, 1),
-        "recommendation": feedback.overall_recommendation,
-        "questions": feedback.questions,
-        "minor_issues": feedback.minor_issues,
-        "submitted_at": datetime.now().isoformat()
-    }
+    # 获取或创建审稿记录
+    review = db.query(ReviewModel).filter(ReviewModel.paper_id == paper_id).first()
+    if not review:
+        review = ReviewModel(paper_id=paper_id)
+        db.add(review)
     
-    _review_drafts[paper_id] = {
-        **_review_drafts.get(paper_id, {}),
-        "feedback": review_data
-    }
+    # 更新评分
+    review.novelty_score = feedback.novelty_score
+    review.novelty_reason = feedback.novelty_reason
+    review.soundness_score = feedback.soundness_score
+    review.soundness_reason = feedback.soundness_reason
+    review.clarity_score = feedback.clarity_score
+    review.clarity_reason = feedback.clarity_reason
+    review.significance_score = feedback.significance_score
+    review.significance_reason = feedback.significance_reason
+    review.reproducibility_score = feedback.reproducibility_score
+    review.reproducibility_reason = feedback.reproducibility_reason
+    review.total_score = round(total_score, 1)
+    review.recommendation = feedback.overall_recommendation
+    review.questions = feedback.questions
+    review.minor_issues = feedback.minor_issues
+    review.submitted_at = datetime.utcnow()
+    
+    db.commit()
     
     return {
         "message": "反馈已保存",
@@ -187,16 +230,16 @@ async def export_review(
     """
     导出审稿意见
     """
-    if paper_id not in _review_drafts:
+    review = db.query(ReviewModel).filter(ReviewModel.paper_id == paper_id).first()
+    if not review:
         raise HTTPException(status_code=404, detail="审稿记录不存在")
     
-    review = _review_drafts[paper_id]
     paper = paper_crud.get(db, paper_id)
     
     if format == "markdown":
         content = _format_review_as_markdown(review, paper)
     else:
-        content = review.get("raw_text", "")
+        content = review.raw_text or ""
     
     return {
         "paper_id": paper_id,
@@ -271,6 +314,37 @@ async def get_review_rubric(paper_id: str):
     return {"rubric": rubric}
 
 
+@router.get("/list", response_model=dict)
+async def list_reviews(
+    skip: int = 0,
+    limit: int = 20,
+    db: Session = Depends(get_db)
+):
+    """
+    获取所有审稿记录
+    """
+    query = db.query(ReviewModel).order_by(ReviewModel.updated_at.desc())
+    total = query.count()
+    reviews = query.offset(skip).limit(limit).all()
+    
+    items = []
+    for r in reviews:
+        paper = paper_crud.get(db, r.paper_id)
+        items.append({
+            "paper_id": r.paper_id,
+            "paper_title": paper.title if paper else None,
+            "recommendation": r.recommendation,
+            "total_score": r.total_score,
+            "generated_at": r.generated_at.isoformat() if r.generated_at else None,
+            "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
+        })
+    
+    return {
+        "items": items,
+        "total": total
+    }
+
+
 def _parse_review_draft(review_text: str, paper, skim) -> dict:
     """
     解析审稿草稿文本为结构化格式
@@ -325,49 +399,54 @@ def _parse_review_draft(review_text: str, paper, skim) -> dict:
     return draft
 
 
-def _format_review_as_markdown(review: dict, paper) -> str:
+def _format_review_as_markdown(review: ReviewModel, paper) -> str:
     """
     格式化审稿意见为Markdown
     """
     lines = [f"# 审稿意见: {paper.title if paper else 'Unknown'}\n"]
     
-    if review.get("feedback"):
-        fb = review["feedback"]
+    if review.novelty_score:
         lines.append("## 评分\n")
-        for dim, data in fb.get("scores", {}).items():
-            lines.append(f"- **{dim}**: {data['score']}/5 - {data['reason']}")
-        lines.append(f"\n**总分**: {fb.get('total_score', 'N/A')}/5")
-        lines.append(f"**建议**: {fb.get('recommendation', 'N/A')}\n")
+        scores = [
+            ("新颖性", review.novelty_score, review.novelty_reason),
+            ("严谨性", review.soundness_score, review.soundness_reason),
+            ("清晰度", review.clarity_score, review.clarity_reason),
+            ("重要性", review.significance_score, review.significance_reason),
+            ("可复现性", review.reproducibility_score, review.reproducibility_reason),
+        ]
+        for name, score, reason in scores:
+            if score:
+                lines.append(f"- **{name}**: {score}/5 - {reason or ''}")
+        lines.append(f"\n**总分**: {review.total_score or 'N/A'}/5")
+        lines.append(f"**建议**: {review.recommendation or 'N/A'}\n")
     
-    draft = review.get("draft", review)
-    
-    if draft.get("summary"):
+    if review.summary:
         lines.append("## 总体评价\n")
-        lines.append(draft["summary"] + "\n")
+        lines.append(review.summary + "\n")
     
-    if draft.get("strengths"):
+    if review.strengths:
         lines.append("## 主要优点\n")
-        for s in draft["strengths"]:
+        for s in review.strengths:
             lines.append(f"- {s}")
         lines.append("")
     
-    if draft.get("weaknesses"):
+    if review.weaknesses:
         lines.append("## 主要问题\n")
-        for w in draft["weaknesses"]:
+        for w in review.weaknesses:
             lines.append(f"- {w}")
         lines.append("")
     
-    if draft.get("questions"):
+    if review.questions:
         lines.append("## 问题\n")
-        for q in draft["questions"]:
+        for q in review.questions:
             lines.append(f"- {q}")
         lines.append("")
     
-    if draft.get("minor_issues"):
+    if review.minor_issues:
         lines.append("## 小问题\n")
-        for m in draft["minor_issues"]:
+        for m in review.minor_issues:
             lines.append(f"- {m}")
     
-    lines.append(f"\n---\n*生成时间: {review.get('generated_at', 'N/A')}*")
+    lines.append(f"\n---\n*生成时间: {review.generated_at.isoformat() if review.generated_at else 'N/A'}*")
     
     return "\n".join(lines)

@@ -1,9 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button, Badge, Input, EmptyState } from '@/components/common';
 import { PaperCard, EvidenceCard, MethodCard } from '@/components/cards';
 import { cn } from '@/lib/utils';
+import { cardApi, exportApi } from '@/lib/api';
 import type { Card } from '@/types';
 import {
   Search,
@@ -16,120 +18,117 @@ import {
   Wrench,
   StickyNote,
   Download,
+  Loader2,
+  RefreshCw,
 } from 'lucide-react';
 
 type ViewMode = 'grid' | 'list';
 type FilterType = 'all' | 'paper' | 'evidence' | 'method' | 'note';
 
 export default function NotesPage() {
+  const router = useRouter();
   const [cards, setCards] = useState<Card[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [filterType, setFilterType] = useState<FilterType>('all');
+  const [byType, setByType] = useState<Record<string, number>>({});
+  const [total, setTotal] = useState(0);
+  const [isExporting, setIsExporting] = useState(false);
+
+  // 防抖搜索
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQuery(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const loadCards = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const types = filterType === 'all' ? undefined : [filterType];
+      const result = await cardApi.search({
+        query: debouncedQuery,
+        types,
+        limit: 100,
+        offset: 0,
+      });
+      
+      setCards(result.items || []);
+      setTotal(result.total || 0);
+      setByType(result.by_type || {});
+    } catch (error) {
+      console.error('加载卡片失败:', error);
+      setCards([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [debouncedQuery, filterType]);
 
   useEffect(() => {
     loadCards();
-  }, []);
+  }, [loadCards]);
 
-  const loadCards = async () => {
-    setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 500));
+  const handleExport = async () => {
+    if (cards.length === 0) return;
     
-    // Mock data
-    setCards([
-      {
-        id: 'c1',
-        paper_id: 'p1',
-        type: 'paper',
-        title: 'Transformer 论文总结',
-        content: '提出了基于自注意力机制的Transformer架构...',
-        one_line_summary: '革命性的序列建模架构',
-        contributions: ['自注意力机制', '多头注意力', '位置编码'],
-        limitations: ['计算复杂度高', '需要大量数据'],
-        tags: ['NLP', 'Attention', 'Transformer'],
-        source_anchor_ids: [],
-        uncertainty: 'from_text',
-        status: 'final',
-        version: 1,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      {
-        id: 'c2',
-        paper_id: 'p1',
-        type: 'evidence',
-        title: 'BLEU分数提升证据',
-        content: '在WMT 2014英德翻译任务上...',
-        claim: 'Transformer在机器翻译上优于RNN',
-        evidence: 'BLEU分数提高2.0',
-        evidence_strength: 'strong',
-        tags: ['实验结果', '翻译'],
-        source_anchor_ids: [],
-        uncertainty: 'from_text',
-        status: 'draft',
-        version: 1,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      {
-        id: 'c3',
-        paper_id: 'p1',
-        type: 'method',
-        title: 'Scaled Dot-Product Attention',
-        content: '核心注意力计算公式',
-        method_name: 'Scaled Dot-Product Attention',
-        inputs: ['Query Q', 'Key K', 'Value V'],
-        outputs: ['Attention输出'],
-        complexity: 'O(n²d)',
-        tags: ['注意力', '公式'],
-        source_anchor_ids: [],
-        uncertainty: 'from_text',
-        status: 'final',
-        version: 1,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-    ]);
-    
-    setIsLoading(false);
+    setIsExporting(true);
+    try {
+      const cardIds = cards.map(c => c.id);
+      const result = await exportApi.export('card', cardIds, 'markdown');
+      
+      // 下载文件
+      const blob = new Blob([result], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `notes_export_${new Date().toISOString().slice(0, 10)}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('导出失败:', error);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
-  const filteredCards = cards.filter(card => {
-    // Type filter
-    if (filterType !== 'all' && card.type !== filterType) {
-      return false;
-    }
-    
-    // Search filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      return (
-        card.title.toLowerCase().includes(query) ||
-        card.content?.toLowerCase().includes(query) ||
-        card.tags?.some(t => t.toLowerCase().includes(query))
-      );
-    }
-    
-    return true;
-  });
-
   const typeConfig = {
-    all: { icon: FileText, label: '全部' },
-    paper: { icon: FileText, label: 'Paper Card' },
-    evidence: { icon: Scale, label: 'Evidence Card' },
-    method: { icon: Wrench, label: 'Method Card' },
-    note: { icon: StickyNote, label: '笔记' },
+    all: { icon: FileText, label: '全部', count: total },
+    paper: { icon: FileText, label: 'Paper Card', count: byType['paper'] || 0 },
+    evidence: { icon: Scale, label: 'Evidence Card', count: byType['evidence'] || 0 },
+    method: { icon: Wrench, label: 'Method Card', count: byType['method'] || 0 },
+    note: { icon: StickyNote, label: '笔记', count: byType['note'] || 0 },
   };
 
   const renderCard = (card: Card) => {
+    const handleClick = () => {
+      if (card.paper_id) {
+        router.push(`/paper/${card.paper_id}/read`);
+      }
+    };
+
     switch (card.type) {
       case 'evidence':
-        return <EvidenceCard key={card.id} card={card} />;
+        return (
+          <div key={card.id} onClick={handleClick} className="cursor-pointer">
+            <EvidenceCard card={card} />
+          </div>
+        );
       case 'method':
-        return <MethodCard key={card.id} card={card} />;
+        return (
+          <div key={card.id} onClick={handleClick} className="cursor-pointer">
+            <MethodCard card={card} />
+          </div>
+        );
       default:
-        return <PaperCard key={card.id} card={card} />;
+        return (
+          <div key={card.id} onClick={handleClick} className="cursor-pointer">
+            <PaperCard card={card} />
+          </div>
+        );
     }
   };
 
@@ -142,17 +141,25 @@ export default function NotesPage() {
             <div>
               <h1 className="text-2xl font-semibold text-gray-900">笔记库</h1>
               <p className="text-sm text-gray-500 mt-1">
-                共 {cards.length} 张卡片
+                共 {total} 张卡片
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <Button variant="secondary">
-                <Download className="w-4 h-4 mr-1" />
+              <Button 
+                variant="secondary" 
+                onClick={handleExport}
+                disabled={isExporting || cards.length === 0}
+              >
+                {isExporting ? (
+                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4 mr-1" />
+                )}
                 导出
               </Button>
-              <Button>
-                <Plus className="w-4 h-4 mr-1" />
-                新建卡片
+              <Button variant="secondary" onClick={loadCards}>
+                <RefreshCw className="w-4 h-4 mr-1" />
+                刷新
               </Button>
             </div>
           </div>
@@ -190,6 +197,9 @@ export default function NotesPage() {
                   >
                     <config.icon className="w-4 h-4" />
                     {config.label}
+                    {type !== 'all' && config.count > 0 && (
+                      <span className="text-xs text-gray-400">({config.count})</span>
+                    )}
                   </button>
                 )
               )}
@@ -230,7 +240,7 @@ export default function NotesPage() {
               <div key={i} className="h-48 bg-gray-200 rounded-xl animate-pulse" />
             ))}
           </div>
-        ) : filteredCards.length === 0 ? (
+        ) : cards.length === 0 ? (
           <EmptyState
             icon={StickyNote}
             title="暂无卡片"
@@ -240,7 +250,11 @@ export default function NotesPage() {
                 <Button variant="secondary" onClick={() => setSearchQuery('')}>
                   清除搜索
                 </Button>
-              ) : undefined
+              ) : (
+                <Button onClick={() => router.push('/library')}>
+                  前往文献库
+                </Button>
+              )
             }
           />
         ) : (
@@ -251,21 +265,25 @@ export default function NotesPage() {
                 : 'space-y-4'
             )}
           >
-            {filteredCards.map(renderCard)}
+            {cards.map(renderCard)}
           </div>
         )}
 
         {/* Stats */}
-        {!isLoading && cards.length > 0 && (
+        {!isLoading && Object.keys(byType).length > 0 && (
           <div className="mt-8 grid grid-cols-4 gap-4">
             {(Object.entries(typeConfig) as [FilterType, typeof typeConfig.all][])
               .filter(([type]) => type !== 'all')
               .map(([type, config]) => {
-                const count = cards.filter(c => c.type === type).length;
+                const count = byType[type] || 0;
                 return (
                   <div
                     key={type}
-                    className="bg-white rounded-xl border border-gray-200 p-4"
+                    onClick={() => setFilterType(type)}
+                    className={cn(
+                      'bg-white rounded-xl border border-gray-200 p-4 cursor-pointer transition-all hover:shadow-md',
+                      filterType === type && 'ring-2 ring-indigo-500'
+                    )}
                   >
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center">
@@ -285,4 +303,3 @@ export default function NotesPage() {
     </div>
   );
 }
-
