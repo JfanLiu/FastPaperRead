@@ -11,6 +11,7 @@ from ...api.deps import get_db, get_enhancer
 from ...crud import paper_crud, skim_crud, anchor_crud
 from ...db.models import PaperStatus, ReadingQueueModel
 from ...core.llm import ContentEnhancer
+from ...core.quality import evaluate_paper_quality
 from ...schemas.skim import SkimCardResponse, SkimDecisionRequest
 
 router = APIRouter()
@@ -61,6 +62,25 @@ async def generate_skim_card(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"生成失败: {str(e)}")
     
+    # 评估质量
+    quality_score = evaluate_paper_quality(
+        abstract=paper.abstract,
+        contributions=result.get("contributions", []),
+        evidence_strength=result.get("evidence_strength", "medium"),
+        skim_data={
+            "red_flags": result.get("red_flags", [])
+        }
+    )
+    
+    # 合并红旗（LLM生成的 + 规则检测的）
+    all_red_flags = list(result.get("red_flags", []))
+    for rf in quality_score.red_flags:
+        if rf.message not in all_red_flags:
+            all_red_flags.append(rf.message)
+    
+    # 更新论文质量等级
+    paper_crud.update(db, paper_id, quality_grade=quality_score.grade.value)
+    
     # 保存结果
     skim_card = skim_crud.create_or_update(
         db,
@@ -69,7 +89,7 @@ async def generate_skim_card(
         contributions=result.get("contributions", []),
         evidence_strength=result.get("evidence_strength", "medium"),
         evidence_strength_reason=result.get("evidence_strength_reason", ""),
-        red_flags=result.get("red_flags", []),
+        red_flags=all_red_flags,
         recommended_route=result.get("recommended_route", "review"),
         recommended_sections=result.get("recommended_sections", []),
         key_figures=result.get("key_figures", [])
@@ -86,6 +106,7 @@ async def generate_skim_card(
             "recommended_sections": skim_card.recommended_sections,
             "key_figures": skim_card.key_figures,
         },
+        "quality": quality_score.to_dict(),
         "cached": False
     }
 
@@ -111,6 +132,50 @@ async def get_skim_card(
             "recommended_sections": skim_card.recommended_sections,
             "key_figures": skim_card.key_figures,
         }
+    }
+
+
+@router.get("/{paper_id}/quality", response_model=dict)
+async def get_paper_quality(
+    paper_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    获取论文质量评估
+    
+    返回质量分数、等级、红旗警告和改进建议
+    """
+    paper = paper_crud.get(db, paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="论文不存在")
+    
+    # 获取skim数据
+    skim_card = skim_crud.get(db, paper_id)
+    skim_data = None
+    if skim_card:
+        skim_data = {
+            "contributions": skim_card.contributions,
+            "evidence_strength": skim_card.evidence_strength,
+            "red_flags": skim_card.red_flags,
+        }
+    
+    # 获取论文统计
+    figure_count = anchor_crud.count_by_type(db, paper_id).get("figure", 0)
+    paper_stats = {
+        "figure_count": figure_count,
+    }
+    
+    # 评估质量
+    quality_score = evaluate_paper_quality(
+        abstract=paper.abstract,
+        skim_data=skim_data,
+        paper_stats=paper_stats
+    )
+    
+    return {
+        "paper_id": paper_id,
+        "quality": quality_score.to_dict(),
+        "current_grade": paper.quality_grade
     }
 
 

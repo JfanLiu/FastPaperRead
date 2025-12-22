@@ -351,3 +351,32 @@ class ReviewModel(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+
+class AnalyticsEventModel(Base):
+    """分析事件表 - 埋点记录"""
+    __tablename__ = "analytics_events"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    
+    # 事件信息
+    event_type = Column(String(50), nullable=False, index=True)  # 事件类型
+    event_name = Column(String(100), nullable=False, index=True)  # 事件名称
+    
+    # 关联实体
+    paper_id = Column(String(36), ForeignKey("papers.id", ondelete="SET NULL"), nullable=True, index=True)
+    card_id = Column(String(36), ForeignKey("cards.id", ondelete="SET NULL"), nullable=True)
+    anchor_id = Column(String(36), ForeignKey("anchors.id", ondelete="SET NULL"), nullable=True)
+    
+    # 事件数据
+    properties = Column(JSON, default=dict)  # 事件属性
+    value = Column(Float, nullable=True)  # 数值（如时长、计数等）
+    
+    # 上下文
+    page = Column(String(100), nullable=True)  # 页面
+    session_id = Column(String(36), nullable=True)  # 会话ID
+    user_agent = Column(String(500), nullable=True)  # 用户代理
+    
+    # 时间戳
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+

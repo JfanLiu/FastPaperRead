@@ -1,7 +1,7 @@
 """
 卡片API路由 - 完整实现
 """
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from datetime import datetime
@@ -11,6 +11,7 @@ from ...api.deps import get_db, get_enhancer
 from ...crud import card_crud, anchor_crud, paper_crud
 from ...db.models import CardType, CardAnchorLinkModel
 from ...core.llm import ContentEnhancer
+from ...core.vector_store import vector_store, add_card_to_vector_store, delete_card_from_vector_store, semantic_search
 from ...schemas.card import (
     CardCreate, CardUpdate, CardResponse, CardListResponse,
     CardFromAnchorRequest, CardSearchRequest
@@ -116,6 +117,16 @@ async def create_card(
     if card.source_anchor_ids:
         create_card_anchor_links(db, new_card.id, card.source_anchor_ids, "source")
     
+    # 同步到向量存储
+    add_card_to_vector_store(
+        card_id=new_card.id,
+        title=new_card.title or "",
+        content=new_card.content or "",
+        paper_id=new_card.paper_id,
+        card_type=card_type.value if hasattr(card_type, 'value') else str(card_type),
+        tags=card.tags
+    )
+    
     return card_to_response(new_card)
 
 
@@ -193,6 +204,16 @@ async def create_card_from_anchor(
     
     # 创建卡片-锚点关联
     create_card_anchor_links(db, new_card.id, [request.anchor_id], "source")
+    
+    # 同步到向量存储
+    add_card_to_vector_store(
+        card_id=new_card.id,
+        title=new_card.title or "",
+        content=new_card.content or "",
+        paper_id=new_card.paper_id,
+        card_type=card_type.value if hasattr(card_type, 'value') else str(card_type),
+        tags=card_data.get("tags", [])
+    )
     
     return card_to_response(new_card)
 
@@ -342,6 +363,16 @@ async def update_card(
     if not card:
         raise HTTPException(404, "卡片不存在")
     
+    # 同步更新向量存储
+    add_card_to_vector_store(
+        card_id=card.id,
+        title=card.title or "",
+        content=card.content or "",
+        paper_id=card.paper_id,
+        card_type=card.type.value if hasattr(card.type, 'value') else str(card.type),
+        tags=card.tags
+    )
+    
     return card_to_response(card)
 
 
@@ -355,6 +386,9 @@ async def delete_card(
     if not success:
         raise HTTPException(404, "卡片不存在")
     
+    # 从向量存储删除
+    delete_card_from_vector_store(card_id)
+    
     return {"message": "卡片已删除"}
 
 
@@ -363,7 +397,7 @@ async def search_cards(
     request: CardSearchRequest,
     db: Session = Depends(get_db)
 ):
-    """搜索卡片"""
+    """搜索卡片（关键词匹配）"""
     cards, total = card_crud.search(
         db,
         query=request.query,
@@ -381,6 +415,102 @@ async def search_cards(
         "items": [card_to_response(c) for c in cards],
         "total": total,
         "by_type": by_type
+    }
+
+
+@router.post("/semantic-search", response_model=dict)
+async def semantic_search_cards(
+    query: str,
+    limit: int = Query(10, ge=1, le=100),
+    paper_id: Optional[str] = None,
+    types: Optional[List[str]] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """
+    语义搜索卡片
+    
+    使用向量相似度进行语义搜索，能找到概念相关的卡片
+    例如：搜索 "attention mechanism" 能找到包含 "自注意力"、"Transformer" 的卡片
+    
+    Args:
+        query: 搜索查询
+        limit: 返回结果数量
+        paper_id: 限制特定论文
+        types: 限制卡片类型
+    """
+    if not vector_store.is_available:
+        raise HTTPException(
+            status_code=503,
+            detail="语义搜索不可用（ChromaDB未安装或初始化失败）"
+        )
+    
+    # 执行语义搜索
+    results = semantic_search(
+        query=query,
+        limit=limit,
+        paper_id=paper_id,
+        card_types=types
+    )
+    
+    # 获取完整卡片信息
+    cards = []
+    for result in results:
+        card = card_crud.get(db, result.card_id)
+        if card:
+            card_dict = card_to_response(card)
+            card_dict["similarity_score"] = result.score
+            cards.append(card_dict)
+    
+    return {
+        "items": cards,
+        "total": len(cards),
+        "query": query,
+        "search_type": "semantic"
+    }
+
+
+@router.get("/vector-store/stats", response_model=dict)
+async def get_vector_store_stats():
+    """获取向量存储统计信息"""
+    return vector_store.get_stats()
+
+
+@router.post("/vector-store/rebuild", response_model=dict)
+async def rebuild_vector_index(
+    db: Session = Depends(get_db)
+):
+    """
+    重建向量索引
+    
+    从数据库读取所有卡片，重新建立向量索引
+    """
+    if not vector_store.is_available:
+        raise HTTPException(
+            status_code=503,
+            detail="向量存储不可用"
+        )
+    
+    # 获取所有卡片
+    from ...db.models import CardModel
+    all_cards = db.query(CardModel).all()
+    
+    cards_data = []
+    for card in all_cards:
+        cards_data.append({
+            "id": card.id,
+            "title": card.title or "",
+            "content": card.content or "",
+            "paper_id": card.paper_id,
+            "type": card.type.value if hasattr(card.type, 'value') else str(card.type),
+            "tags": card.tags or []
+        })
+    
+    count = vector_store.rebuild_index(cards_data)
+    
+    return {
+        "message": "索引重建完成",
+        "total_cards": len(cards_data),
+        "indexed": count
     }
 
 

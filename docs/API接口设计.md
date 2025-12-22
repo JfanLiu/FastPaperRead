@@ -22,24 +22,34 @@
 | | `GET /papers/stats/overview` | ✅ | 统计信息（兼容路径） |
 | | `PATCH /papers/{id}` | ✅ | 更新论文 |
 | | `DELETE /papers/{id}` | ✅ | 删除论文 |
+| | `POST /papers/{id}/fetch-metadata` | ✅ | **新增** - 获取DOI/arXiv元数据 |
+| | `POST /papers/lookup-metadata` | ✅ | **新增** - 预览元数据 |
 | **Anchors** | `GET /anchors/paper/{id}` | ✅ | 获取锚点列表 |
 | | `GET /anchors/paper/{id}/sections` | ✅ | 获取章节树 |
 | | `GET /anchors/{id}` | ✅ | 获取单个锚点 |
+| | `GET /anchors/{id}/cards` | ✅ | **新增** - 获取关联卡片 |
 | | `PUT /anchors/{id}/read` | ✅ | 标记已读 |
-| **Skim** | `POST /skim/{id}/generate` | ✅ | 生成 SkimCard |
+| **Skim** | `POST /skim/{id}/generate` | ✅ | 生成 SkimCard（含质量评估） |
 | | `GET /skim/{id}` | ✅ | 获取 SkimCard |
+| | `GET /skim/{id}/quality` | ✅ | **新增** - 获取质量评估 |
 | | `POST /skim/{id}/decision` | ✅ | 做出决策 |
-| | `GET /skim/queue` | ✅ | **新增** - 获取待读队列 |
-| | `POST /skim/queue/{id}` | ✅ | **新增** - 加入队列 |
-| | `DELETE /skim/queue/{id}` | ✅ | **新增** - 从队列移除 |
-| | `GET /skim/{id}/key-figures` | ✅ | **新增** - 获取关键图表 |
+| | `GET /skim/queue` | ✅ | 获取待读队列 |
+| | `POST /skim/queue/{id}` | ✅ | 加入队列 |
+| | `DELETE /skim/queue/{id}` | ✅ | 从队列移除 |
+| | `GET /skim/{id}/key-figures` | ✅ | 获取关键图表 |
 | **Cards** | `POST /cards` | ✅ | 创建卡片 |
 | | `POST /cards/from-anchor` | ✅ | 从锚点创建 |
 | | `GET /cards/paper/{id}` | ✅ | 获取论文卡片 |
 | | `GET /cards/{id}` | ✅ | 获取卡片详情 |
+| | `GET /cards/{id}/anchors` | ✅ | **新增** - 获取关联锚点 |
+| | `POST /cards/{id}/link-anchor` | ✅ | **新增** - 关联锚点 |
+| | `DELETE /cards/{id}/unlink-anchor/{anchor_id}` | ✅ | **新增** - 取消关联 |
 | | `PUT /cards/{id}` | ✅ | 更新卡片 |
 | | `DELETE /cards/{id}` | ✅ | 删除卡片 |
-| | `POST /cards/search` | ✅ | 搜索卡片 |
+| | `POST /cards/search` | ✅ | 搜索卡片（关键词） |
+| | `POST /cards/semantic-search` | ✅ | **新增** - 语义搜索 |
+| | `GET /cards/vector-store/stats` | ✅ | **新增** - 向量存储统计 |
+| | `POST /cards/vector-store/rebuild` | ✅ | **新增** - 重建索引 |
 | | `PUT /cards/{id}/finalize` | ✅ | 定稿卡片 |
 | **Checklist** | `GET /checklist/templates` | ✅ | 获取模板 |
 | | `POST /checklist/{id}/generate` | ✅ | 生成清单 |
@@ -49,22 +59,36 @@
 | **Enhance** | `POST /enhance` | ✅ | 增强内容 |
 | | `POST /enhance/batch` | ✅ | 批量增强 |
 | | `POST /enhance/missing-details/scan` | ✅ | 扫描缺失细节 |
-| **Export** | `POST /export` | ✅ | **新增** - 统一导出入口 |
+| **Export** | `POST /export` | ✅ | 统一导出入口 |
 | | `GET /export/{id}/markdown` | ✅ | 导出 Markdown |
 | | `GET /export/{id}/json` | ✅ | 导出 JSON |
 | | `GET /export/{id}/bibtex` | ✅ | 导出 BibTeX |
-| | `GET /export/paper/{id}/bibtex` | ✅ | **新增** - 兼容路径 |
-| | `GET /export/paper/{id}/notes` | ✅ | **新增** - 导出笔记 |
+| | `GET /export/paper/{id}/bibtex` | ✅ | 兼容路径 |
+| | `GET /export/paper/{id}/notes` | ✅ | 导出笔记 |
 | | `POST /export/batch/markdown` | ✅ | 批量导出 |
-| **Compare** | `POST /compare/sets` | 🔧 | 创建集合（内存存储） |
-| | `GET /compare/sets/{id}` | 🔧 | 获取集合（内存存储） |
-| | `POST /compare/sets/{id}/matrix` | 🔧 | 生成矩阵 |
-| **Review** | `POST /review/{id}/draft` | 🔧 | 生成草稿（内存存储） |
-| | `GET /review/{id}/draft` | 🔧 | 获取草稿 |
-| | `POST /review/{id}/feedback` | 🔧 | 提交反馈 |
-| | `GET /review/{id}/export-review` | 🔧 | 导出审稿 |
-| **WebSocket** | `WS /ws/papers/{id}/progress` | 📋 | 计划中 |
-| | `WS /ws/enhance/{id}` | 📋 | 计划中 |
+| **Compare** | `POST /compare/sets` | ✅ | 创建集合（数据库存储） |
+| | `GET /compare/sets` | ✅ | 获取集合列表 |
+| | `GET /compare/sets/{id}` | ✅ | 获取集合详情 |
+| | `PUT /compare/sets/{id}` | ✅ | 更新集合 |
+| | `DELETE /compare/sets/{id}` | ✅ | 删除集合 |
+| | `POST /compare/sets/{id}/papers/{paper_id}` | ✅ | 添加论文 |
+| | `DELETE /compare/sets/{id}/papers/{paper_id}` | ✅ | 移除论文 |
+| | `POST /compare/sets/{id}/matrix` | ✅ | 生成矩阵 |
+| **Review** | `POST /review/{id}/draft` | ✅ | 生成草稿（数据库存储） |
+| | `GET /review/{id}/draft` | ✅ | 获取草稿 |
+| | `PUT /review/{id}/draft` | ✅ | 更新草稿 |
+| | `POST /review/{id}/feedback` | ✅ | 提交反馈 |
+| | `GET /review/{id}/export-review` | ✅ | 导出审稿 |
+| **Analytics** | `POST /analytics/track` | ✅ | **新增** - 记录事件 |
+| | `POST /analytics/track/batch` | ✅ | **新增** - 批量记录 |
+| | `GET /analytics/stats` | ✅ | **新增** - 统计看板 |
+| | `GET /analytics/stats/paper/{id}` | ✅ | **新增** - 论文分析 |
+| | `GET /analytics/report` | ✅ | **新增** - 使用报告 |
+| | `GET /analytics/events` | ✅ | **新增** - 事件列表 |
+| | `GET /analytics/event-types` | ✅ | **新增** - 事件类型 |
+| | `GET /analytics/dashboard` | ✅ | **新增** - 仪表盘 |
+| **WebSocket** | `WS /ws/papers/{id}/progress` | ✅ | 解析进度推送 |
+| | `WS /ws/enhance/{id}` | ✅ | 增强流式推送 |
 
 ---
 
@@ -145,11 +169,51 @@ POST /papers/import
   "paper_id": "uuid",
   "job_id": "uuid",
   "status": "pending",
-  "message": "论文导入任务已创建"
+  "message": "论文导入任务已创建",
+  "metadata": {
+    "title": "Paper Title",
+    "authors": ["Author One"],
+    "year": 2024,
+    "source": "arxiv"
+  }
 }
 ```
 
-### 1.2 上传PDF
+### 1.2 获取元数据（预览）
+
+```
+POST /papers/lookup-metadata?url=https://arxiv.org/abs/2301.00001
+```
+
+**响应**:
+```json
+{
+  "metadata": {
+    "title": "Paper Title",
+    "authors": ["Author One", "Author Two"],
+    "year": 2024,
+    "abstract": "...",
+    "venue": "arXiv"
+  },
+  "source_type": "arxiv"
+}
+```
+
+### 1.3 刷新元数据
+
+```
+POST /papers/{paper_id}/fetch-metadata
+```
+
+**响应**:
+```json
+{
+  "message": "Metadata updated successfully",
+  "paper": {...}
+}
+```
+
+### 1.4 上传PDF
 
 ```
 POST /papers/upload
@@ -160,7 +224,7 @@ Content-Type: multipart/form-data
 
 **响应**: 同上
 
-### 1.3 获取导入状态
+### 1.5 获取导入状态
 
 ```
 GET /papers/{paper_id}/import-status
@@ -179,7 +243,7 @@ GET /papers/{paper_id}/import-status
 }
 ```
 
-### 1.4 获取论文列表
+### 1.6 获取论文列表
 
 ```
 GET /papers?page=1&limit=20&status=unread&quality=A
@@ -208,13 +272,13 @@ GET /papers?skip=0&limit=20&status=unread  # 兼容格式
 }
 ```
 
-### 1.5 获取论文详情
+### 1.7 获取论文详情
 
 ```
 GET /papers/{paper_id}
 ```
 
-### 1.6 更新论文
+### 1.8 更新论文
 
 ```
 PUT /papers/{paper_id}
@@ -230,13 +294,13 @@ PUT /papers/{paper_id}
 }
 ```
 
-### 1.7 删除论文
+### 1.9 删除论文
 
 ```
 DELETE /papers/{paper_id}
 ```
 
-### 1.8 获取论文统计
+### 1.10 获取论文统计
 
 ```
 GET /papers/stats/overview
@@ -286,7 +350,8 @@ GET /anchors/paper/{paper_id}?type=figure&page=1
       "text": "Figure 1: Architecture overview",
       "caption": "Our proposed architecture...",
       "image_path": "/files/xxx/fig_1.png",
-      "figure_number": "Figure 1"
+      "figure_number": "Figure 1",
+      "card_ids": ["uuid1", "uuid2"]
     }
   ],
   "total": 20,
@@ -294,7 +359,22 @@ GET /anchors/paper/{paper_id}?type=figure&page=1
 }
 ```
 
-### 2.2 获取章节树
+### 2.2 获取锚点关联卡片
+
+```
+GET /anchors/{anchor_id}/cards
+```
+
+**响应**:
+```json
+{
+  "anchor_id": "uuid",
+  "cards": [...],
+  "total": 3
+}
+```
+
+### 2.3 获取章节树
 
 ```
 GET /anchors/paper/{paper_id}/sections
@@ -326,7 +406,7 @@ GET /anchors/paper/{paper_id}/sections
 }
 ```
 
-### 2.3 获取阅读路线
+### 2.4 获取阅读路线
 
 ```
 GET /anchors/paper/{paper_id}/routes/{route_name}
@@ -345,13 +425,13 @@ GET /anchors/paper/{paper_id}/routes/{route_name}
 }
 ```
 
-### 2.4 获取单个锚点
+### 2.5 获取单个锚点
 
 ```
 GET /anchors/{anchor_id}
 ```
 
-### 2.5 搜索锚点
+### 2.6 搜索锚点
 
 ```
 POST /anchors/search
@@ -367,7 +447,7 @@ POST /anchors/search
 }
 ```
 
-### 2.6 标记锚点已读
+### 2.7 标记锚点已读
 
 ```
 PUT /anchors/{anchor_id}/read?is_read=true
@@ -418,46 +498,6 @@ POST /enhance
   },
   "cached": false,
   "processing_time_ms": 1200
-}
-```
-
-**响应** (公式解释):
-```json
-{
-  "enhance_type": "equation",
-  "anchor_id": "uuid",
-  "equation": {
-    "latex": "\\alpha = \\text{softmax}(QK^T/\\sqrt{d})",
-    "symbol_table": {
-      "Q": "查询矩阵",
-      "K": "键矩阵",
-      "d": "维度",
-      "α": "注意力权重"
-    },
-    "key_assumptions": ["Q和K维度相同"],
-    "derivation_steps": ["1. 计算点积...", "2. 缩放..."],
-    "plain_explanation": "这个公式计算输入之间的相关性...",
-    "source_anchor_id": "uuid",
-    "uncertainty": "from_text"
-  }
-}
-```
-
-**响应** (图表解释):
-```json
-{
-  "enhance_type": "figure",
-  "anchor_id": "uuid",
-  "figure": {
-    "figure_number": "Figure 2",
-    "caption": "Performance comparison",
-    "what_it_shows": "这张图想证明我们的方法在多个数据集上优于baseline...",
-    "evidence_assessment": "证据强度中等，因为只对比了3个baseline...",
-    "alternative_explanations": ["可能是数据集选择有偏"],
-    "key_observations": ["在小数据集上提升更明显"],
-    "source_anchor_id": "uuid",
-    "uncertainty": "inferred"
-  }
 }
 ```
 
@@ -544,23 +584,6 @@ POST /cards
 }
 ```
 
-**请求体** (EvidenceCard):
-```json
-{
-  "paper_id": "uuid",
-  "type": "evidence",
-  "title": "实验证据",
-  "content": "...",
-  "source_anchor_ids": ["uuid"],
-  "claim": "我们的方法比baseline快2倍",
-  "evidence": "在Table 2中展示了...",
-  "evidence_strength": "medium",
-  "alternative_explanations": ["可能是硬件差异"],
-  "risks": ["没有统计显著性检验"],
-  "figure_anchor_ids": ["uuid_fig"]
-}
-```
-
 ### 4.2 从锚点创建卡片
 
 ```
@@ -576,31 +599,58 @@ POST /cards/from-anchor
 }
 ```
 
-### 4.3 获取论文卡片
+### 4.3 获取卡片关联锚点
+
+```
+GET /cards/{card_id}/anchors
+```
+
+**响应**:
+```json
+{
+  "card_id": "uuid",
+  "anchors": [...],
+  "total": 2
+}
+```
+
+### 4.4 关联锚点
+
+```
+POST /cards/{card_id}/link-anchor?anchor_id=uuid&link_type=reference
+```
+
+### 4.5 取消关联
+
+```
+DELETE /cards/{card_id}/unlink-anchor/{anchor_id}
+```
+
+### 4.6 获取论文卡片
 
 ```
 GET /cards/paper/{paper_id}?type=evidence
 ```
 
-### 4.4 获取卡片详情
+### 4.7 获取卡片详情
 
 ```
 GET /cards/{card_id}
 ```
 
-### 4.5 更新卡片
+### 4.8 更新卡片
 
 ```
 PUT /cards/{card_id}
 ```
 
-### 4.6 删除卡片
+### 4.9 删除卡片
 
 ```
 DELETE /cards/{card_id}
 ```
 
-### 4.7 搜索卡片
+### 4.10 搜索卡片（关键词）
 
 ```
 POST /cards/search
@@ -619,7 +669,68 @@ POST /cards/search
 }
 ```
 
-### 4.8 定稿卡片
+### 4.11 语义搜索
+
+```
+POST /cards/semantic-search?query=自注意力机制&limit=10
+```
+
+**查询参数**:
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| query | string | 搜索查询（必需） |
+| limit | int | 结果数量（默认10，最大100） |
+| paper_id | string | 限制特定论文 |
+| types | list | 限制卡片类型 |
+
+**响应**:
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "title": "Self-Attention机制",
+      "content": "...",
+      "similarity_score": 0.89
+    }
+  ],
+  "total": 5,
+  "query": "自注意力机制",
+  "search_type": "semantic"
+}
+```
+
+### 4.12 向量存储统计
+
+```
+GET /cards/vector-store/stats
+```
+
+**响应**:
+```json
+{
+  "available": true,
+  "total_documents": 150,
+  "collection_name": "cards"
+}
+```
+
+### 4.13 重建向量索引
+
+```
+POST /cards/vector-store/rebuild
+```
+
+**响应**:
+```json
+{
+  "message": "索引重建完成",
+  "total_cards": 150,
+  "indexed": 150
+}
+```
+
+### 4.14 定稿卡片
 
 ```
 PUT /cards/{card_id}/finalize
@@ -632,31 +743,41 @@ PUT /cards/{card_id}/finalize
 ### 5.1 生成SkimCard
 
 ```
-POST /skim/generate
-```
-
-**请求体**:
-```json
-{
-  "paper_id": "uuid",
-  "force_regenerate": false
-}
+POST /skim/{paper_id}/generate?force=false
 ```
 
 **响应**:
 ```json
 {
-  "paper_id": "uuid",
-  "research_question": "如何提高Transformer的效率？",
-  "contributions": ["提出了线性复杂度的注意力", "在多个任务上SOTA"],
-  "evidence_strength": "medium",
-  "evidence_strength_reason": "只在3个数据集上验证",
-  "red_flags": ["缺少消融实验"],
-  "recommended_route": "review",
-  "recommended_sections": ["Method", "Experiments"],
-  "key_figures": ["uuid_fig1", "uuid_fig2"],
-  "generated_at": "2024-01-01T00:00:00Z",
-  "source_anchor_ids": ["uuid1", "uuid2"]
+  "skim_card": {
+    "research_question": "如何提高Transformer的效率？",
+    "contributions": ["提出了线性复杂度的注意力", "在多个任务上SOTA"],
+    "evidence_strength": "medium",
+    "evidence_strength_reason": "只在3个数据集上验证",
+    "red_flags": ["缺少消融实验", "仅在单个数据集上评估"],
+    "recommended_route": "review",
+    "recommended_sections": ["Method", "Experiments"],
+    "key_figures": ["uuid_fig1", "uuid_fig2"]
+  },
+  "quality": {
+    "overall_score": 72.5,
+    "grade": "B",
+    "dimensions": {
+      "methodology": 70,
+      "evidence": 70,
+      "completeness": 75,
+      "clarity": 80
+    },
+    "red_flags": [
+      {
+        "type": "no_ablation",
+        "message": "缺少消融实验",
+        "severity": "medium"
+      }
+    ],
+    "suggestions": ["关注论文是否与相关工作进行了公平比较"]
+  },
+  "cached": false
 }
 ```
 
@@ -666,16 +787,36 @@ POST /skim/generate
 GET /skim/{paper_id}
 ```
 
-### 5.3 做出阅读决策
+### 5.3 获取质量评估
 
 ```
-POST /skim/decision
+GET /skim/{paper_id}/quality
+```
+
+**响应**:
+```json
+{
+  "paper_id": "uuid",
+  "quality": {
+    "overall_score": 72.5,
+    "grade": "B",
+    "dimensions": {...},
+    "red_flags": [...],
+    "suggestions": [...]
+  },
+  "current_grade": "B"
+}
+```
+
+### 5.4 做出阅读决策
+
+```
+POST /skim/{paper_id}/decision
 ```
 
 **请求体** (归档):
 ```json
 {
-  "paper_id": "uuid",
   "decision": "archive",
   "archive_reasons": ["not_relevant", "weak_evidence"],
   "archive_note": "不是我的研究方向"
@@ -685,20 +826,10 @@ POST /skim/decision
 **请求体** (加入队列):
 ```json
 {
-  "paper_id": "uuid",
   "decision": "queue",
   "queue_priority": "high",
   "estimated_time": 30,
   "reading_goal": "method"
-}
-```
-
-**请求体** (精读):
-```json
-{
-  "paper_id": "uuid",
-  "decision": "deepread",
-  "reading_route": "quick_repro"
 }
 ```
 
@@ -713,7 +844,7 @@ POST /skim/decision
 }
 ```
 
-### 5.4 获取关键图表
+### 5.5 获取关键图表
 
 ```
 GET /skim/{paper_id}/key-figures?limit=5
@@ -737,12 +868,6 @@ GET /skim/{paper_id}/key-figures?limit=5
   "total": 8,
   "returned": 5
 }
-```
-
-### 5.5 获取文献地图
-
-```
-GET /skim/{paper_id}/literature-map
 ```
 
 ### 5.6 获取待读队列
@@ -778,27 +903,10 @@ GET /skim/queue?limit=50
 POST /skim/queue/{paper_id}?priority=5&note=重点阅读
 ```
 
-**响应**:
-```json
-{
-  "message": "已加入阅读队列",
-  "queue_id": "uuid",
-  "paper_id": "uuid"
-}
-```
-
 ### 5.8 从队列移除
 
 ```
 DELETE /skim/queue/{paper_id}
-```
-
-**响应**:
-```json
-{
-  "message": "已从队列移除",
-  "paper_id": "uuid"
-}
 ```
 
 ---
@@ -815,7 +923,18 @@ POST /compare/sets
 ```json
 {
   "name": "注意力机制对比",
+  "description": "对比不同注意力机制的性能",
   "paper_ids": ["uuid1", "uuid2", "uuid3"]
+}
+```
+
+**响应**:
+```json
+{
+  "id": "uuid",
+  "name": "注意力机制对比",
+  "paper_ids": ["uuid1", "uuid2", "uuid3"],
+  "created_at": "2024-01-01T00:00:00Z"
 }
 ```
 
@@ -825,31 +944,40 @@ POST /compare/sets
 GET /compare/sets
 ```
 
-### 6.3 添加论文到集合
+### 6.3 获取对比集合详情
+
+```
+GET /compare/sets/{set_id}
+```
+
+### 6.4 更新对比集合
+
+```
+PUT /compare/sets/{set_id}
+```
+
+### 6.5 删除对比集合
+
+```
+DELETE /compare/sets/{set_id}
+```
+
+### 6.6 添加论文到集合
 
 ```
 POST /compare/sets/{set_id}/papers/{paper_id}
 ```
 
-### 6.4 应用归一化
+### 6.7 从集合移除论文
 
 ```
-POST /compare/sets/{set_id}/normalize
+DELETE /compare/sets/{set_id}/papers/{paper_id}
 ```
 
-**请求体**:
-```json
-{
-  "compare_set_id": "uuid",
-  "term_mappings": {"attention score": "attention weight"},
-  "metric_mappings": {"accuracy": "acc", "Accuracy": "acc"}
-}
-```
-
-### 6.5 获取对比矩阵
+### 6.8 生成对比矩阵
 
 ```
-GET /compare/sets/{set_id}/matrix
+POST /compare/sets/{set_id}/matrix
 ```
 
 **响应**:
@@ -877,12 +1005,6 @@ GET /compare/sets/{set_id}/matrix
 }
 ```
 
-### 6.6 导出Related Work
-
-```
-POST /compare/sets/{set_id}/export/related-work?style=timeline
-```
-
 ---
 
 ## 7. 审稿模式 (`/review`)
@@ -890,7 +1012,7 @@ POST /compare/sets/{set_id}/export/related-work?style=timeline
 ### 7.1 生成审稿草稿
 
 ```
-POST /review/generate/{paper_id}
+POST /review/{paper_id}/draft
 ```
 
 **响应**:
@@ -898,68 +1020,63 @@ POST /review/generate/{paper_id}
 {
   "id": "uuid",
   "paper_id": "uuid",
-  "rubric": {
+  "summary": "本文提出了...",
+  "strengths": ["创新性强", "实验充分"],
+  "weaknesses": ["缺少消融实验"],
+  "questions": ["请补充超参数说明"],
+  "recommendation": "weak_accept",
+  "scores": {
     "novelty": 3,
     "novelty_reason": "方法有一定新意...",
     "soundness": 3,
-    "soundness_reason": "实验设计合理...",
-    "rigor": 3,
-    "rigor_reason": "统计分析较完整",
-    "reproducibility": 2,
-    "reproducibility_reason": "缺少实现细节",
     "clarity": 4,
-    "clarity_reason": "写作清晰"
+    "significance": 3,
+    "reproducibility": 2,
+    "total": 3.0
   },
-  "questions": [
-    {
-      "id": "uuid",
-      "question": "请补充超参数选择说明",
-      "severity": "minor",
-      "topic": "experiment"
-    }
-  ],
-  "claims_evidence": [...]
+  "generated_at": "2024-01-01T00:00:00Z"
 }
 ```
 
-### 7.2 获取审稿
+### 7.2 获取审稿草稿
 
 ```
-GET /review/{paper_id}
+GET /review/{paper_id}/draft
 ```
 
-### 7.3 更新审稿
+### 7.3 更新审稿草稿
 
 ```
-PUT /review/{review_id}
-```
-
-### 7.4 添加审稿问题
-
-```
-POST /review/{review_id}/questions
+PUT /review/{paper_id}/draft
 ```
 
 **请求体**:
 ```json
 {
-  "question": "公式(3)的推导是否正确？",
-  "severity": "major",
-  "topic": "method",
-  "anchor_id": "uuid_eq"
+  "summary": "更新后的总结",
+  "strengths": ["更新后的优点"],
+  "recommendation": "accept"
 }
 ```
 
-### 7.5 设置审稿建议
+### 7.4 提交反馈
 
 ```
-POST /review/{review_id}/recommendation?recommendation=weak_accept&confidence=3
+POST /review/{paper_id}/feedback
 ```
 
-### 7.6 导出审稿报告
+**请求体**:
+```json
+{
+  "feedback": "建议增加更多实验对比",
+  "type": "suggestion"
+}
+```
+
+### 7.5 导出审稿报告
 
 ```
-GET /review/{review_id}/export?format=markdown
+GET /review/{paper_id}/export-review?format=markdown
 ```
 
 ---
@@ -998,88 +1115,203 @@ GET /export/paper/{paper_id}/bibtex
 GET /export/paper/{paper_id}/notes?format=markdown
 ```
 
-**响应** (Markdown 格式):
-```markdown
-# Paper Title - 阅读笔记
-*导出时间: 2024-01-01 12:00*
-
 ---
 
-## 📋 快速阅读卡片
-### 研究问题
-...
+## 9. 统计分析 (`/analytics`)
 
-### 主要贡献
-- ...
+### 9.1 记录事件
 
----
-
-## 📝 笔记卡片
-### 📄 Paper Card
-...
-
-### ⚖️ Evidence Card
-...
-
----
-
-## ✅ 复现清单
-**完成度**: 75%
-
-### 📊 数据
-- ✅ 数据集名称和版本
-- ❌ 数据预处理步骤
-...
+```
+POST /analytics/track
 ```
 
-**响应** (JSON 格式):
+**请求体**:
 ```json
 {
+  "event_type": "paper_action",
+  "event_name": "paper_upload",
   "paper_id": "uuid",
-  "paper_title": "Paper Title",
-  "exported_at": "2024-01-01T00:00:00Z",
-  "skim_card": {...},
-  "cards": [...]
+  "properties": {"source": "arxiv"},
+  "page": "home",
+  "session_id": "uuid"
 }
 ```
 
----
+**事件类型**:
+- `page_view`: 页面浏览
+- `user_action`: 用户操作
+- `paper_action`: 论文操作
+- `card_action`: 卡片操作
+- `system`: 系统事件
+- `performance`: 性能指标
 
-## 错误码参考
-
-| 错误码 | HTTP状态码 | 说明 |
-|--------|-----------|------|
-| PAPER_NOT_FOUND | 404 | 论文不存在 |
-| ANCHOR_NOT_FOUND | 404 | 锚点不存在 |
-| CARD_NOT_FOUND | 404 | 卡片不存在 |
-| JOB_NOT_FOUND | 404 | 任务不存在 |
-| INVALID_FILE_TYPE | 400 | 文件类型不支持 |
-| PARSE_FAILED | 500 | 解析失败 |
-| LLM_ERROR | 503 | LLM服务异常 |
-| RATE_LIMITED | 429 | 请求过于频繁 |
-
----
-
-## WebSocket接口
-
-### 解析进度推送
+### 9.2 批量记录
 
 ```
-WS /ws/papers/{job_id}/progress
+POST /analytics/track/batch
+```
+
+**请求体**:
+```json
+{
+  "events": [
+    {"event_type": "page_view", "event_name": "view_home"},
+    {"event_type": "paper_action", "event_name": "paper_upload", "paper_id": "uuid"}
+  ]
+}
+```
+
+### 9.3 获取统计看板
+
+```
+GET /analytics/stats?days=30
+```
+
+**响应**:
+```json
+{
+  "summary": {
+    "total_papers": 100,
+    "total_cards": 500,
+    "total_reviews": 20,
+    "total_events": 5000,
+    "active_papers": 30,
+    "date_range": {
+      "start": "2024-01-01T00:00:00Z",
+      "end": "2024-01-31T00:00:00Z"
+    }
+  },
+  "paper_status_distribution": {
+    "unread": 30,
+    "skimmed": 40,
+    "deepread": 20,
+    "archived": 10
+  },
+  "card_type_distribution": {
+    "paper": 100,
+    "evidence": 200,
+    "method": 150,
+    "note": 50
+  },
+  "event_type_distribution": {
+    "page_view": 2000,
+    "paper_action": 1500,
+    "card_action": 1000
+  },
+  "top_events": [
+    {"event_name": "view_home", "count": 500},
+    {"event_name": "paper_upload", "count": 100}
+  ],
+  "daily_trend": [
+    {"date": "2024-01-01", "count": 150},
+    {"date": "2024-01-02", "count": 200}
+  ]
+}
+```
+
+### 9.4 获取论文分析
+
+```
+GET /analytics/stats/paper/{paper_id}
+```
+
+**响应**:
+```json
+{
+  "paper_id": "uuid",
+  "event_count": 50,
+  "event_breakdown": {
+    "view_read": 20,
+    "card_create": 10,
+    "enhance_request": 20
+  },
+  "card_count": 5,
+  "recent_events": [...]
+}
+```
+
+### 9.5 获取使用报告
+
+```
+GET /analytics/report?days=7
+```
+
+**响应**:
+```json
+{
+  "period": "last_7_days",
+  "new_papers": 10,
+  "completed_papers": 5,
+  "event_summary": {
+    "view_home": 100,
+    "paper_upload": 10,
+    "card_create": 25
+  }
+}
+```
+
+### 9.6 获取仪表盘
+
+```
+GET /analytics/dashboard
+```
+
+**响应**:
+```json
+{
+  "today": {
+    "events": 50,
+    "papers": 2,
+    "cards": 10
+  },
+  "totals": {
+    "papers": 100,
+    "cards": 500,
+    "reviews": 20,
+    "pending_papers": 30
+  },
+  "weekly_trend": [
+    {"date": "2024-01-01", "count": 150}
+  ]
+}
+```
+
+### 9.7 获取事件列表
+
+```
+GET /analytics/events?event_type=paper_action&limit=50
+```
+
+### 9.8 获取事件类型定义
+
+```
+GET /analytics/event-types
+```
+
+---
+
+## 10. WebSocket接口
+
+### 10.1 解析进度推送
+
+```
+WS /ws/papers/{paper_id}/progress
 ```
 
 **消息格式**:
 ```json
 {
   "type": "progress",
-  "job_id": "uuid",
+  "paper_id": "uuid",
   "progress": 60,
-  "current_step": "extract_figures",
-  "message": "正在提取图表..."
+  "step": "extract_figures",
+  "message": "正在提取图表...",
+  "status": "running",
+  "timestamp": "2024-01-01T00:00:00Z"
 }
 ```
 
-### 增强结果流式推送
+### 10.2 增强结果流式推送
 
 ```
 WS /ws/enhance/{request_id}
@@ -1100,3 +1332,28 @@ WS /ws/enhance/{request_id}
 }
 ```
 
+---
+
+## 错误码参考
+
+| 错误码 | HTTP状态码 | 说明 |
+|--------|-----------|------|
+| PAPER_NOT_FOUND | 404 | 论文不存在 |
+| ANCHOR_NOT_FOUND | 404 | 锚点不存在 |
+| CARD_NOT_FOUND | 404 | 卡片不存在 |
+| JOB_NOT_FOUND | 404 | 任务不存在 |
+| INVALID_FILE_TYPE | 400 | 文件类型不支持 |
+| PARSE_FAILED | 500 | 解析失败 |
+| LLM_ERROR | 503 | LLM服务异常 |
+| RATE_LIMITED | 429 | 请求过于频繁 |
+| VECTOR_STORE_UNAVAILABLE | 503 | 向量存储不可用 |
+
+---
+
+## 版本历史
+
+| 版本 | 日期 | 变更说明 |
+|------|------|----------|
+| 2.1.0 | 2025-12-22 | 新增语义搜索、质量评估、埋点统计、元数据获取、卡片-锚点关联API |
+| 2.0.0 | 2025-12-22 | WebSocket实现、Compare/Review数据库持久化 |
+| 1.0.0 | 2025-12-20 | 初始版本 |
