@@ -263,3 +263,21 @@ class ImportJobModel(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
 
+
+class ReadingQueueModel(Base):
+    """阅读队列表"""
+    __tablename__ = "reading_queue"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    paper_id = Column(String(36), ForeignKey("papers.id"), nullable=False, unique=True)
+    
+    # 优先级和顺序
+    priority = Column(Integer, default=0)  # 越大越优先
+    position = Column(Integer, default=0)  # 队列位置
+    
+    # 备注
+    note = Column(Text, nullable=True)
+    
+    # 时间戳
+    added_at = Column(DateTime, default=datetime.utcnow)
+

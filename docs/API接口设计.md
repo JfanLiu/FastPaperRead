@@ -1,9 +1,72 @@
 # API 接口设计文档
 
-> ⚠️ **重要说明（2025-12-22）**  
-> 当前仓库代码实现（`backend/app/api/v1/*` + `frontend/src/lib/api.ts`）与本文档存在差异。  
-> 为避免误导：**短期以代码为准**，本文档将按“当前实现 + 计划演进”逐步更新。  
+> ⚠️ **重要说明（2025-12-22 更新）**  
+> 本文档已与当前代码实现对齐。**以代码为最终标准**。  
 > 全量待办与排期请见：`docs/任务与时间_2025-12-22.md`
+
+---
+
+## 接口实现状态汇总
+
+> ✅ = 已实现并可用 | 🔧 = 部分实现 | 📋 = 计划中
+
+| 模块 | 接口路径 | 状态 | 备注 |
+|------|----------|------|------|
+| **Papers** | `POST /papers/upload` | ✅ | PDF 上传 |
+| | `POST /papers/import` | ✅ | URL 导入（arXiv/DOI） |
+| | `GET /papers` | ✅ | 支持 `skip/limit` 和 `page/limit` |
+| | `GET /papers/{id}` | ✅ | 获取详情 |
+| | `GET /papers/{id}/pdf` | ✅ | 获取 PDF 文件 |
+| | `GET /papers/{id}/import-status` | ✅ | 获取导入状态 |
+| | `GET /papers/stats` | ✅ | 统计信息 |
+| | `GET /papers/stats/overview` | ✅ | 统计信息（兼容路径） |
+| | `PATCH /papers/{id}` | ✅ | 更新论文 |
+| | `DELETE /papers/{id}` | ✅ | 删除论文 |
+| **Anchors** | `GET /anchors/paper/{id}` | ✅ | 获取锚点列表 |
+| | `GET /anchors/paper/{id}/sections` | ✅ | 获取章节树 |
+| | `GET /anchors/{id}` | ✅ | 获取单个锚点 |
+| | `PUT /anchors/{id}/read` | ✅ | 标记已读 |
+| **Skim** | `POST /skim/{id}/generate` | ✅ | 生成 SkimCard |
+| | `GET /skim/{id}` | ✅ | 获取 SkimCard |
+| | `POST /skim/{id}/decision` | ✅ | 做出决策 |
+| | `GET /skim/queue` | ✅ | **新增** - 获取待读队列 |
+| | `POST /skim/queue/{id}` | ✅ | **新增** - 加入队列 |
+| | `DELETE /skim/queue/{id}` | ✅ | **新增** - 从队列移除 |
+| | `GET /skim/{id}/key-figures` | ✅ | **新增** - 获取关键图表 |
+| **Cards** | `POST /cards` | ✅ | 创建卡片 |
+| | `POST /cards/from-anchor` | ✅ | 从锚点创建 |
+| | `GET /cards/paper/{id}` | ✅ | 获取论文卡片 |
+| | `GET /cards/{id}` | ✅ | 获取卡片详情 |
+| | `PUT /cards/{id}` | ✅ | 更新卡片 |
+| | `DELETE /cards/{id}` | ✅ | 删除卡片 |
+| | `POST /cards/search` | ✅ | 搜索卡片 |
+| | `PUT /cards/{id}/finalize` | ✅ | 定稿卡片 |
+| **Checklist** | `GET /checklist/templates` | ✅ | 获取模板 |
+| | `POST /checklist/{id}/generate` | ✅ | 生成清单 |
+| | `GET /checklist/{id}` | ✅ | 获取清单 |
+| | `PUT /checklist/{id}/item/{item_id}` | ✅ | 更新清单项 |
+| | `POST /checklist/{id}/verdict` | ✅ | 设置判定 |
+| **Enhance** | `POST /enhance` | ✅ | 增强内容 |
+| | `POST /enhance/batch` | ✅ | 批量增强 |
+| | `POST /enhance/missing-details/scan` | ✅ | 扫描缺失细节 |
+| **Export** | `POST /export` | ✅ | **新增** - 统一导出入口 |
+| | `GET /export/{id}/markdown` | ✅ | 导出 Markdown |
+| | `GET /export/{id}/json` | ✅ | 导出 JSON |
+| | `GET /export/{id}/bibtex` | ✅ | 导出 BibTeX |
+| | `GET /export/paper/{id}/bibtex` | ✅ | **新增** - 兼容路径 |
+| | `GET /export/paper/{id}/notes` | ✅ | **新增** - 导出笔记 |
+| | `POST /export/batch/markdown` | ✅ | 批量导出 |
+| **Compare** | `POST /compare/sets` | 🔧 | 创建集合（内存存储） |
+| | `GET /compare/sets/{id}` | 🔧 | 获取集合（内存存储） |
+| | `POST /compare/sets/{id}/matrix` | 🔧 | 生成矩阵 |
+| **Review** | `POST /review/{id}/draft` | 🔧 | 生成草稿（内存存储） |
+| | `GET /review/{id}/draft` | 🔧 | 获取草稿 |
+| | `POST /review/{id}/feedback` | 🔧 | 提交反馈 |
+| | `GET /review/{id}/export-review` | 🔧 | 导出审稿 |
+| **WebSocket** | `WS /ws/papers/{id}/progress` | 📋 | 计划中 |
+| | `WS /ws/enhance/{id}` | 📋 | 计划中 |
+
+---
 
 ## 概述
 
@@ -100,23 +163,19 @@ Content-Type: multipart/form-data
 ### 1.3 获取导入状态
 
 ```
-GET /papers/import/{job_id}/status
+GET /papers/{paper_id}/import-status
 ```
+
+> 注：使用 `paper_id` 而非 `job_id`，简化前端调用
 
 **响应**:
 ```json
 {
   "paper_id": "uuid",
-  "job_id": "uuid",
-  "status": "running",
-  "progress": 60,
-  "current_step": "提取图表",
-  "steps": {
-    "download": "completed",
-    "parse_text": "completed",
-    "extract_figures": "running",
-    "generate_anchors": "pending"
-  }
+  "status": "running",        // running/completed/failed
+  "paper_status": "parsing",  // 实际论文状态
+  "progress": 0.5,
+  "current_step": "解析PDF中..."
 }
 ```
 
@@ -124,39 +183,28 @@ GET /papers/import/{job_id}/status
 
 ```
 GET /papers?page=1&limit=20&status=unread&quality=A
+GET /papers?skip=0&limit=20&status=unread  # 兼容格式
 ```
 
 **查询参数**:
 | 参数 | 类型 | 说明 |
 |------|------|------|
-| page | int | 页码 |
-| limit | int | 每页数量 |
-| status | string | 状态筛选 (unread/skimmed/deepread/archived) |
+| page | int | 页码（从1开始），与 skip 二选一 |
+| skip | int | 跳过数量，与 page 二选一 |
+| limit | int | 每页数量（默认20，最大100） |
+| status | string | 状态筛选 (importing/parsing/unread/skimmed/deepread/archived) |
 | quality | string | 质量筛选 (A/B/C/D) |
-| year | int | 年份筛选 |
 | search | string | 关键词搜索 |
 
 **响应**:
 ```json
 {
-  "items": [
-    {
-      "id": "uuid",
-      "title": "Paper Title",
-      "authors": ["Author One"],
-      "year": 2024,
-      "status": "unread",
-      "quality_grade": "A",
-      "read_progress": 0,
-      "anchor_count": 50,
-      "card_count": 3,
-      "created_at": "2024-01-01T00:00:00Z"
-    }
-  ],
+  "papers": [...],  // 兼容旧格式
+  "items": [...],   // 新格式
   "total": 100,
-  "page": 1,
+  "skip": 0,
   "limit": 20,
-  "has_more": true
+  "page": 1
 }
 ```
 
@@ -671,6 +719,26 @@ POST /skim/decision
 GET /skim/{paper_id}/key-figures?limit=5
 ```
 
+**响应**:
+```json
+{
+  "paper_id": "uuid",
+  "figures": [
+    {
+      "anchor_id": "uuid",
+      "type": "figure",
+      "page": 3,
+      "figure_number": "Figure 1",
+      "caption": "Architecture overview...",
+      "image_path": "/files/xxx/fig_1.png",
+      "section": "Method"
+    }
+  ],
+  "total": 8,
+  "returned": 5
+}
+```
+
 ### 5.5 获取文献地图
 
 ```
@@ -680,13 +748,57 @@ GET /skim/{paper_id}/literature-map
 ### 5.6 获取待读队列
 
 ```
-GET /skim/queue
+GET /skim/queue?limit=50
 ```
 
-### 5.7 从队列移除
+**响应**:
+```json
+{
+  "items": [
+    {
+      "queue_id": "uuid",
+      "paper_id": "uuid",
+      "title": "Paper Title",
+      "authors": ["Author One"],
+      "year": 2024,
+      "status": "skimmed",
+      "quality_grade": "A",
+      "priority": 5,
+      "note": "重点阅读方法部分",
+      "added_at": "2024-01-01T00:00:00Z"
+    }
+  ],
+  "total": 10
+}
+```
+
+### 5.7 加入待读队列
+
+```
+POST /skim/queue/{paper_id}?priority=5&note=重点阅读
+```
+
+**响应**:
+```json
+{
+  "message": "已加入阅读队列",
+  "queue_id": "uuid",
+  "paper_id": "uuid"
+}
+```
+
+### 5.8 从队列移除
 
 ```
 DELETE /skim/queue/{paper_id}
+```
+
+**响应**:
+```json
+{
+  "message": "已从队列移除",
+  "paper_id": "uuid"
+}
 ```
 
 ---
@@ -884,6 +996,51 @@ GET /export/paper/{paper_id}/bibtex
 
 ```
 GET /export/paper/{paper_id}/notes?format=markdown
+```
+
+**响应** (Markdown 格式):
+```markdown
+# Paper Title - 阅读笔记
+*导出时间: 2024-01-01 12:00*
+
+---
+
+## 📋 快速阅读卡片
+### 研究问题
+...
+
+### 主要贡献
+- ...
+
+---
+
+## 📝 笔记卡片
+### 📄 Paper Card
+...
+
+### ⚖️ Evidence Card
+...
+
+---
+
+## ✅ 复现清单
+**完成度**: 75%
+
+### 📊 数据
+- ✅ 数据集名称和版本
+- ❌ 数据预处理步骤
+...
+```
+
+**响应** (JSON 格式):
+```json
+{
+  "paper_id": "uuid",
+  "paper_title": "Paper Title",
+  "exported_at": "2024-01-01T00:00:00Z",
+  "skim_card": {...},
+  "cards": [...]
+}
 ```
 
 ---

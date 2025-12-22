@@ -6,6 +6,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
+from pydantic import BaseModel
 import json
 import io
 
@@ -13,6 +14,103 @@ from ...api.deps import get_db
 from ...crud import paper_crud, anchor_crud, card_crud, skim_crud
 
 router = APIRouter()
+
+
+class UnifiedExportRequest(BaseModel):
+    """统一导出请求"""
+    object_type: str  # paper, card, checklist
+    object_ids: List[str]
+    format: str = "markdown"  # markdown, json, bibtex
+    include_sources: bool = True
+
+
+@router.post("")
+async def unified_export(
+    request: UnifiedExportRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    统一导出入口
+    
+    支持导出:
+    - paper: 论文及其笔记
+    - card: 卡片
+    - checklist: 复现清单
+    
+    格式:
+    - markdown
+    - json
+    - bibtex (仅支持paper)
+    """
+    if not request.object_ids:
+        raise HTTPException(status_code=400, detail="请指定要导出的对象ID")
+    
+    # 单个paper导出
+    if request.object_type == "paper" and len(request.object_ids) == 1:
+        paper_id = request.object_ids[0]
+        
+        if request.format == "markdown":
+            return await export_as_markdown(paper_id, db=db)
+        elif request.format == "json":
+            return await export_as_json(paper_id, db=db)
+        elif request.format == "bibtex":
+            return await export_as_bibtex(paper_id, db=db)
+        else:
+            raise HTTPException(status_code=400, detail=f"不支持的格式: {request.format}")
+    
+    # 多个paper导出
+    if request.object_type == "paper" and len(request.object_ids) > 1:
+        if request.format == "markdown":
+            return await batch_export_markdown(request.object_ids, db=db)
+        else:
+            # 返回JSON数组
+            results = []
+            for paper_id in request.object_ids:
+                paper = paper_crud.get(db, paper_id)
+                if paper:
+                    results.append({
+                        "id": paper.id,
+                        "title": paper.title,
+                        "authors": paper.authors,
+                        "year": paper.year,
+                        "venue": paper.venue,
+                        "abstract": paper.abstract,
+                    })
+            return {"papers": results, "count": len(results)}
+    
+    # 卡片导出
+    if request.object_type == "card":
+        cards = []
+        for card_id in request.object_ids:
+            card = card_crud.get(db, card_id)
+            if card:
+                cards.append({
+                    "id": card.id,
+                    "type": card.type.value if hasattr(card.type, 'value') else card.type,
+                    "title": card.title,
+                    "content": card.content,
+                    "tags": card.tags or [],
+                })
+        
+        if request.format == "markdown":
+            md_lines = ["# 导出的卡片\n"]
+            for card in cards:
+                md_lines.append(f"## {card['title']}\n")
+                md_lines.append(f"**类型**: {card['type']}\n")
+                md_lines.append(f"\n{card['content']}\n")
+                if card['tags']:
+                    md_lines.append(f"\n**标签**: {', '.join(card['tags'])}\n")
+                md_lines.append("\n---\n")
+            
+            return Response(
+                content="".join(md_lines),
+                media_type="text/markdown",
+                headers={"Content-Disposition": "attachment; filename=cards_export.md"}
+            )
+        else:
+            return {"cards": cards, "count": len(cards)}
+    
+    raise HTTPException(status_code=400, detail=f"不支持的对象类型: {request.object_type}")
 
 
 @router.get("/{paper_id}/markdown")
@@ -248,6 +346,171 @@ async def export_as_json(
             "Content-Disposition": f"attachment; filename={paper_id}_export.json"
         }
     )
+
+
+@router.get("/paper/{paper_id}/bibtex")
+async def export_paper_bibtex(
+    paper_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    导出论文BibTeX (兼容路径 /export/paper/{paper_id}/bibtex)
+    """
+    return await export_as_bibtex(paper_id, db=db)
+
+
+@router.get("/paper/{paper_id}/notes")
+async def export_paper_notes(
+    paper_id: str,
+    format: str = "markdown",
+    db: Session = Depends(get_db)
+):
+    """
+    导出论文笔记
+    
+    包含:
+    - SkimCard 快速阅读卡片
+    - 所有笔记卡片
+    - 复现清单（如有）
+    """
+    paper = paper_crud.get(db, paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="论文不存在")
+    
+    if format == "markdown":
+        md_lines = []
+        
+        # 标题
+        md_lines.append(f"# {paper.title} - 阅读笔记\n")
+        md_lines.append(f"*导出时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}*\n")
+        md_lines.append("\n---\n")
+        
+        # SkimCard
+        skim = skim_crud.get(db, paper_id)
+        if skim:
+            md_lines.append("## 📋 快速阅读卡片\n")
+            md_lines.append(f"### 研究问题\n{skim.research_question}\n\n")
+            
+            if skim.contributions:
+                md_lines.append("### 主要贡献\n")
+                for c in skim.contributions:
+                    md_lines.append(f"- {c}\n")
+                md_lines.append("\n")
+            
+            md_lines.append(f"### 证据强度\n**{skim.evidence_strength}** - {skim.evidence_strength_reason}\n\n")
+            
+            if skim.red_flags:
+                md_lines.append("### ⚠️ 风险提示\n")
+                for flag in skim.red_flags:
+                    md_lines.append(f"- {flag}\n")
+                md_lines.append("\n")
+            
+            md_lines.append("---\n")
+        
+        # 笔记卡片
+        cards = card_crud.get_by_paper(db, paper_id)
+        if cards:
+            md_lines.append("## 📝 笔记卡片\n")
+            
+            # 按类型分组
+            card_types = {
+                'paper': ('📄 Paper Card', []),
+                'evidence': ('⚖️ Evidence Card', []),
+                'method': ('🔧 Method Card', []),
+                'note': ('📝 笔记', []),
+            }
+            
+            for card in cards:
+                card_type = card.type.value if hasattr(card.type, 'value') else (card.type or 'note')
+                if card_type in card_types:
+                    card_types[card_type][1].append(card)
+            
+            for type_key, (type_label, type_cards) in card_types.items():
+                if type_cards:
+                    md_lines.append(f"### {type_label}\n")
+                    for card in type_cards:
+                        md_lines.append(f"#### {card.title}\n")
+                        if card.content:
+                            md_lines.append(f"{card.content}\n\n")
+                        if card.tags:
+                            md_lines.append(f"*标签: {', '.join(card.tags)}*\n\n")
+                    md_lines.append("\n")
+        
+        # 复现清单
+        from ...db.models import ChecklistModel
+        checklist = db.query(ChecklistModel).filter(ChecklistModel.paper_id == paper_id).first()
+        if checklist:
+            md_lines.append("## ✅ 复现清单\n")
+            md_lines.append(f"**完成度**: {round(checklist.completeness_score * 100, 1)}%\n\n")
+            
+            if checklist.items:
+                # 按组分类
+                by_group = {}
+                for item in checklist.items:
+                    group = item.get("group", "other")
+                    if group not in by_group:
+                        by_group[group] = []
+                    by_group[group].append(item)
+                
+                group_names = {
+                    "data": "📊 数据",
+                    "model": "🧠 模型",
+                    "training": "🏋️ 训练",
+                    "evaluation": "📈 评估",
+                    "code": "💻 代码",
+                }
+                
+                for group_id, items in by_group.items():
+                    group_name = group_names.get(group_id, group_id)
+                    md_lines.append(f"### {group_name}\n")
+                    for item in items:
+                        status = "✅" if item.get("found") else "❌"
+                        md_lines.append(f"- {status} {item.get('text', '')}\n")
+                        if item.get("inferred_value"):
+                            md_lines.append(f"  - *{item['inferred_value']}*\n")
+                    md_lines.append("\n")
+        
+        md_lines.append("\n---\n*由 FastPaperRead 生成*\n")
+        
+        content = "".join(md_lines)
+        return Response(
+            content=content,
+            media_type="text/markdown",
+            headers={"Content-Disposition": f"attachment; filename={paper_id}_notes.md"}
+        )
+    
+    else:
+        # JSON格式
+        notes_data = {
+            "paper_id": paper_id,
+            "paper_title": paper.title,
+            "exported_at": datetime.now().isoformat(),
+        }
+        
+        skim = skim_crud.get(db, paper_id)
+        if skim:
+            notes_data["skim_card"] = {
+                "research_question": skim.research_question,
+                "contributions": skim.contributions,
+                "evidence_strength": skim.evidence_strength,
+                "evidence_strength_reason": skim.evidence_strength_reason,
+                "red_flags": skim.red_flags,
+            }
+        
+        cards = card_crud.get_by_paper(db, paper_id)
+        if cards:
+            notes_data["cards"] = [
+                {
+                    "id": c.id,
+                    "type": c.type.value if hasattr(c.type, 'value') else c.type,
+                    "title": c.title,
+                    "content": c.content,
+                    "tags": c.tags or [],
+                }
+                for c in cards
+            ]
+        
+        return notes_data
 
 
 @router.get("/{paper_id}/bibtex")

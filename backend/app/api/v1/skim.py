@@ -1,13 +1,15 @@
 """
 快速阅读(Skim)相关API端点 - 完整实现
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import Optional
+from sqlalchemy import desc
+from typing import Optional, List
+from datetime import datetime
 
 from ...api.deps import get_db, get_enhancer
-from ...crud import paper_crud, skim_crud
-from ...db.models import PaperStatus
+from ...crud import paper_crud, skim_crud, anchor_crud
+from ...db.models import PaperStatus, ReadingQueueModel
 from ...core.llm import ContentEnhancer
 from ...schemas.skim import SkimCardResponse, SkimDecisionRequest
 
@@ -146,4 +148,177 @@ async def make_skim_decision(
         "message": "决策已记录",
         "decision": request.decision,
         "new_status": new_status.value
+    }
+
+
+# ============================================
+# 阅读队列 API
+# ============================================
+
+@router.get("/queue", response_model=dict)
+async def get_reading_queue(
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db)
+):
+    """
+    获取待读队列
+    
+    返回按优先级和添加时间排序的论文列表
+    """
+    queue_items = db.query(ReadingQueueModel).order_by(
+        desc(ReadingQueueModel.priority),
+        ReadingQueueModel.added_at
+    ).limit(limit).all()
+    
+    papers = []
+    for item in queue_items:
+        paper = paper_crud.get(db, item.paper_id)
+        if paper:
+            papers.append({
+                "queue_id": item.id,
+                "paper_id": paper.id,
+                "title": paper.title,
+                "authors": paper.authors,
+                "year": paper.year,
+                "status": paper.status.value if paper.status else "unknown",
+                "quality_grade": paper.quality_grade,
+                "priority": item.priority,
+                "note": item.note,
+                "added_at": item.added_at.isoformat() if item.added_at else None,
+            })
+    
+    return {
+        "items": papers,
+        "total": len(papers)
+    }
+
+
+@router.post("/queue/{paper_id}", response_model=dict)
+async def add_to_queue(
+    paper_id: str,
+    priority: int = Query(0, ge=0, le=10),
+    note: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    将论文加入阅读队列
+    """
+    paper = paper_crud.get(db, paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="论文不存在")
+    
+    # 检查是否已在队列中
+    existing = db.query(ReadingQueueModel).filter(
+        ReadingQueueModel.paper_id == paper_id
+    ).first()
+    
+    if existing:
+        # 更新优先级和备注
+        existing.priority = priority
+        if note is not None:
+            existing.note = note
+        db.commit()
+        return {
+            "message": "已更新队列项",
+            "queue_id": existing.id,
+            "paper_id": paper_id
+        }
+    
+    # 添加到队列
+    queue_item = ReadingQueueModel(
+        paper_id=paper_id,
+        priority=priority,
+        note=note
+    )
+    db.add(queue_item)
+    db.commit()
+    db.refresh(queue_item)
+    
+    return {
+        "message": "已加入阅读队列",
+        "queue_id": queue_item.id,
+        "paper_id": paper_id
+    }
+
+
+@router.delete("/queue/{paper_id}")
+async def remove_from_queue(
+    paper_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    从阅读队列移除论文
+    """
+    queue_item = db.query(ReadingQueueModel).filter(
+        ReadingQueueModel.paper_id == paper_id
+    ).first()
+    
+    if not queue_item:
+        raise HTTPException(status_code=404, detail="论文不在队列中")
+    
+    db.delete(queue_item)
+    db.commit()
+    
+    return {"message": "已从队列移除", "paper_id": paper_id}
+
+
+# ============================================
+# 关键图表 API
+# ============================================
+
+@router.get("/{paper_id}/key-figures", response_model=dict)
+async def get_key_figures(
+    paper_id: str,
+    limit: int = Query(5, ge=1, le=20),
+    db: Session = Depends(get_db)
+):
+    """
+    获取论文的关键图表
+    
+    返回论文中最重要的figure锚点
+    """
+    paper = paper_crud.get(db, paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="论文不存在")
+    
+    # 获取所有figure类型的锚点
+    figures = anchor_crud.get_by_paper(
+        db,
+        paper_id,
+        type="figure"
+    )
+    
+    # 简单排序：优先有caption的，然后按序号
+    def figure_score(fig):
+        score = 0
+        if fig.caption:
+            score += 10
+        if fig.figure_number:
+            # 提取数字进行排序
+            try:
+                num = int(''.join(filter(str.isdigit, fig.figure_number or '0')))
+                score += (100 - num)  # 小编号优先
+            except:
+                pass
+        return score
+    
+    sorted_figures = sorted(figures, key=figure_score, reverse=True)[:limit]
+    
+    result = []
+    for fig in sorted_figures:
+        result.append({
+            "anchor_id": fig.id,
+            "type": "figure",
+            "page": fig.page,
+            "figure_number": fig.figure_number,
+            "caption": fig.caption,
+            "image_path": fig.image_path,
+            "section": fig.section,
+        })
+    
+    return {
+        "paper_id": paper_id,
+        "figures": result,
+        "total": len(figures),
+        "returned": len(result)
     }

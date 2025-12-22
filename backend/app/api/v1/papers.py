@@ -150,10 +150,36 @@ async def import_paper_from_url(
     }
 
 
-@router.get("", response_model=PaperListResponse)
+def paper_to_dict(paper) -> dict:
+    """将PaperModel转换为可序列化的字典"""
+    return {
+        "id": paper.id,
+        "title": paper.title,
+        "authors": paper.authors or [],
+        "year": paper.year,
+        "venue": paper.venue,
+        "abstract": paper.abstract,
+        "keywords": paper.keywords or [],
+        "source_type": paper.source_type,
+        "source_value": paper.source_value,
+        "pdf_path": paper.pdf_path,
+        "markdown_path": paper.markdown_path,
+        "status": paper.status.value if paper.status else "unknown",
+        "quality_grade": paper.quality_grade,
+        "repro_status": paper.repro_status,
+        "current_section": paper.current_section,
+        "read_progress": paper.read_progress or 0.0,
+        "created_at": paper.created_at.isoformat() if paper.created_at else None,
+        "updated_at": paper.updated_at.isoformat() if paper.updated_at else None,
+        "last_read_at": paper.last_read_at.isoformat() if paper.last_read_at else None,
+    }
+
+
+@router.get("", response_model=dict)
 async def get_all_papers(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
+    page: Optional[int] = Query(None, ge=1, description="页码（从1开始），与skip二选一"),
     status: Optional[str] = None,
     quality: Optional[str] = None,
     search: Optional[str] = None,
@@ -162,15 +188,22 @@ async def get_all_papers(
     """
     获取论文列表
     
-    - 支持分页
+    - 支持分页: 可使用 skip/limit 或 page/limit
     - 支持按状态/质量筛选
     - 支持搜索
+    
+    兼容性：同时返回 papers 和 items 字段
     """
-    logger.debug(f"[LIST] 获取论文列表: skip={skip}, limit={limit}, status={status}, search={search}")
+    # 如果提供了page参数，转换为skip
+    actual_skip = skip
+    if page is not None:
+        actual_skip = (page - 1) * limit
+    
+    logger.debug(f"[LIST] 获取论文列表: skip={actual_skip}, limit={limit}, page={page}, status={status}, search={search}")
     
     papers, total = paper_crud.get_list(
         db,
-        skip=skip,
+        skip=actual_skip,
         limit=limit,
         status=status,
         quality=quality,
@@ -179,17 +212,35 @@ async def get_all_papers(
     
     logger.info(f"[LIST] 返回论文: {len(papers)}/{total}")
     
+    # 计算当前页码
+    current_page = page if page is not None else (actual_skip // limit) + 1
+    
+    # 将PaperModel转换为可序列化的字典
+    papers_list = [paper_to_dict(p) for p in papers]
+    
     return {
-        "papers": papers,
+        "papers": papers_list,  # 兼容旧格式
+        "items": papers_list,   # 新格式
         "total": total,
-        "skip": skip,
-        "limit": limit
+        "skip": actual_skip,
+        "limit": limit,
+        "page": current_page
     }
 
 
 @router.get("/stats", response_model=dict)
 async def get_paper_stats(db: Session = Depends(get_db)):
     """获取论文统计信息"""
+    return paper_crud.get_stats(db)
+
+
+@router.get("/stats/overview", response_model=dict)
+async def get_paper_stats_overview(db: Session = Depends(get_db)):
+    """
+    获取论文统计概览（兼容前端调用路径）
+    
+    与 /stats 返回相同数据
+    """
     return paper_crud.get_stats(db)
 
 

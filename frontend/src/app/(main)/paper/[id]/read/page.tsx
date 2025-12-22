@@ -16,7 +16,7 @@ import {
 } from '@/components/reader';
 import { Button, Badge, Progress } from '@/components/common';
 import { cn } from '@/lib/utils';
-import { getPdfUrl, paperApi, anchorApi, cardApi } from '@/lib/api';
+import { getPdfUrl, paperApi, anchorApi, cardApi, checklistApi } from '@/lib/api';
 import type { Paper, Anchor, Card } from '@/types';
 import {
   ChevronLeft,
@@ -245,23 +245,78 @@ export default function ReadPage() {
     }
   }, []);
 
-  // 处理创建卡片
-  const handleCreateCard = (card: Partial<Card>) => {
-    const newCard: Card = {
-      id: `card_${Date.now()}`,
-      paper_id: paperId,
-      type: card.type || 'note',
-      title: card.title || '',
-      content: card.content || '',
-      source_anchor_ids: card.source_anchor_ids || [],
-      uncertainty: card.uncertainty || 'from_text',
-      status: 'draft',
-      tags: card.tags || [],
-      version: 1,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    setCards([...cards, newCard]);
+  // 处理创建卡片 - 调用后端API
+  const handleCreateCard = async (card: Partial<Card>) => {
+    try {
+      const newCard = await cardApi.create({
+        paper_id: paperId,
+        type: card.type || 'note',
+        title: card.title || '',
+        content: card.content || '',
+        source_anchor_ids: card.source_anchor_ids || [],
+        uncertainty: card.uncertainty || 'from_text',
+        tags: card.tags || [],
+      });
+      setCards([...cards, newCard]);
+    } catch (error) {
+      console.error('创建卡片失败:', error);
+      // 失败时保存到本地
+      const localCard: Card = {
+        id: `local_card_${Date.now()}`,
+        paper_id: paperId,
+        type: card.type || 'note',
+        title: card.title || '',
+        content: card.content || '',
+        source_anchor_ids: card.source_anchor_ids || [],
+        uncertainty: card.uncertainty || 'from_text',
+        status: 'draft',
+        tags: card.tags || [],
+        version: 1,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      setCards([...cards, localCard]);
+    }
+  };
+  
+  // 处理更新卡片 - 调用后端API
+  const handleUpdateCard = async (cardId: string, updates: Partial<Card>) => {
+    try {
+      // 如果是本地卡片，只更新本地
+      if (cardId.startsWith('local_')) {
+        setCards(cards.map(c => 
+          c.id === cardId ? { ...c, ...updates, updated_at: new Date().toISOString() } : c
+        ));
+        return;
+      }
+      
+      const updatedCard = await cardApi.update(cardId, updates);
+      setCards(cards.map(c => c.id === cardId ? updatedCard : c));
+    } catch (error) {
+      console.error('更新卡片失败:', error);
+      // 失败时更新本地
+      setCards(cards.map(c => 
+        c.id === cardId ? { ...c, ...updates, updated_at: new Date().toISOString() } : c
+      ));
+    }
+  };
+  
+  // 处理删除卡片 - 调用后端API
+  const handleDeleteCard = async (cardId: string) => {
+    try {
+      // 如果是本地卡片，只删除本地
+      if (cardId.startsWith('local_')) {
+        setCards(cards.filter(c => c.id !== cardId));
+        return;
+      }
+      
+      await cardApi.delete(cardId);
+      setCards(cards.filter(c => c.id !== cardId));
+    } catch (error) {
+      console.error('删除卡片失败:', error);
+      // 失败时也从本地删除
+      setCards(cards.filter(c => c.id !== cardId));
+    }
   };
 
   // 处理添加到复现清单
@@ -272,6 +327,82 @@ export default function ReadPage() {
     };
     setChecklistItems([...checklistItems, newItem]);
   };
+
+  // 处理更新清单项 - 调用后端API
+  const handleUpdateChecklistItem = async (itemId: string, updates: Partial<ChecklistItem>) => {
+    // 先更新本地状态
+    setChecklistItems(checklistItems.map(i =>
+      i.id === itemId ? { ...i, ...updates } : i
+    ));
+    
+    // 如果不是本地创建的ID，尝试同步到后端
+    if (!itemId.startsWith('checklist_')) {
+      try {
+        await checklistApi.updateItem(paperId, itemId, {
+          found: updates.missing === false,
+          note: updates.value,
+          inferred_value: updates.value,
+        });
+      } catch (error) {
+        console.error('同步清单项到后端失败:', error);
+      }
+    }
+  };
+
+  // 处理删除清单项
+  const handleDeleteChecklistItem = (itemId: string) => {
+    setChecklistItems(checklistItems.filter(i => i.id !== itemId));
+  };
+
+  // 处理扫描缺失项 - 调用后端API
+  const handleScanMissing = async () => {
+    try {
+      // 先尝试生成清单
+      const result = await checklistApi.generate(paperId);
+      if (result.items) {
+        // 将后端返回的项目转换为本地格式
+        const newItems: ChecklistItem[] = result.items.map((item: { id: string; group: string; text: string; found: boolean; needs_verify: boolean; inferred_value?: string }) => ({
+          id: item.id,
+          group: item.group as 'data' | 'preprocess' | 'training' | 'eval' | 'env',
+          text: item.text,
+          missing: !item.found,
+          needs_verify: item.needs_verify,
+          source_anchor: undefined,
+          value: item.inferred_value,
+        }));
+        setChecklistItems(newItems);
+      }
+    } catch (error) {
+      console.error('扫描缺失项失败:', error);
+    }
+  };
+
+  // 加载已有的清单数据
+  useEffect(() => {
+    const loadChecklist = async () => {
+      try {
+        const result = await checklistApi.get(paperId);
+        if (result.items) {
+          const items: ChecklistItem[] = result.items.map((item: { id: string; group: string; text: string; found: boolean; needs_verify: boolean; inferred_value?: string; source_anchor_id?: string }) => ({
+            id: item.id,
+            group: item.group as 'data' | 'preprocess' | 'training' | 'eval' | 'env',
+            text: item.text,
+            missing: !item.found,
+            needs_verify: item.needs_verify,
+            source_anchor: item.source_anchor_id,
+            value: item.inferred_value,
+          }));
+          setChecklistItems(items);
+        }
+      } catch {
+        // 清单不存在是正常的
+      }
+    };
+    
+    if (paperId) {
+      loadChecklist();
+    }
+  }, [paperId]);
 
   // 计算阅读进度
   const sectionAnchors = anchors.filter(a => a.type === 'section');
@@ -621,14 +752,8 @@ export default function ReadPage() {
                     paperId={paperId}
                     selectedAnchor={selectedAnchor}
                     onCreateCard={handleCreateCard}
-                    onUpdateCard={(cardId, updates) => {
-                      setCards(cards.map(c => 
-                        c.id === cardId ? { ...c, ...updates } : c
-                      ));
-                    }}
-                    onDeleteCard={(cardId) => {
-                      setCards(cards.filter(c => c.id !== cardId));
-                    }}
+                    onUpdateCard={handleUpdateCard}
+                    onDeleteCard={handleDeleteCard}
                     onJumpToAnchor={(anchorId) => {
                       const anchor = anchors.find(a => a.id === anchorId);
                       if (anchor) handleAnchorClick(anchor);
@@ -640,22 +765,13 @@ export default function ReadPage() {
                     items={checklistItems}
                     paperId={paperId}
                     onAddItem={handleAddToChecklist}
-                    onUpdateItem={(itemId, updates) => {
-                      setChecklistItems(checklistItems.map(i =>
-                        i.id === itemId ? { ...i, ...updates } : i
-                      ));
-                    }}
-                    onDeleteItem={(itemId) => {
-                      setChecklistItems(checklistItems.filter(i => i.id !== itemId));
-                    }}
+                    onUpdateItem={handleUpdateChecklistItem}
+                    onDeleteItem={handleDeleteChecklistItem}
                     onJumpToAnchor={(anchorId) => {
                       const anchor = anchors.find(a => a.id === anchorId);
                       if (anchor) handleAnchorClick(anchor);
                     }}
-                    onFindMissing={() => {
-                      // TODO: 调用 AI 扫描缺失项
-                      console.log('扫描缺失项');
-                    }}
+                    onFindMissing={handleScanMissing}
                   />
                 )}
               </div>
