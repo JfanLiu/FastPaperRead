@@ -146,3 +146,4 @@ class CardCRUD:
 
 card_crud = CardCRUD()
 
+

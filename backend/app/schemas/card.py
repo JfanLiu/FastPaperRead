@@ -123,3 +123,4 @@ class CardSearchRequest(BaseModel):
     limit: int = 20
     offset: int = 0
 
+

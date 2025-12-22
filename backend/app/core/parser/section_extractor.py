@@ -285,3 +285,4 @@ class SectionExtractor:
             "full": min(90, total_sections * 8)
         }
 
+

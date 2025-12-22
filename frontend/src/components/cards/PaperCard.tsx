@@ -177,3 +177,4 @@ export function PaperCard({ card, onEdit, onDelete, onFinalize, className }: Pap
   );
 }
 
+
