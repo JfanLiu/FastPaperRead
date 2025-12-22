@@ -193,6 +193,11 @@ async def search_anchors(request: AnchorSearchRequest, db: Session = Depends(get
     
     # 按页码范围过滤
     if request.page_range:
+        if len(request.page_range) != 2:
+            raise HTTPException(
+                status_code=422,
+                detail="page_range must contain exactly 2 elements [start, end]"
+            )
         start, end = request.page_range
         query = query.filter(AnchorModel.page >= start, AnchorModel.page <= end)
     

@@ -2,8 +2,8 @@
 锚点相关的API Schema
 """
 from datetime import datetime
-from typing import Optional, List, Dict, Any
-from pydantic import BaseModel
+from typing import Optional, List, Dict, Any, Tuple
+from pydantic import BaseModel, field_validator
 
 
 class BoundingBoxSchema(BaseModel):
@@ -101,4 +101,18 @@ class AnchorSearchRequest(BaseModel):
     types: Optional[List[str]] = None  # 限定类型
     page_range: Optional[List[int]] = None  # [start, end]
     limit: int = 20
+    
+    @field_validator('page_range')
+    @classmethod
+    def validate_page_range(cls, v: Optional[List[int]]) -> Optional[List[int]]:
+        """验证 page_range 必须包含恰好 2 个元素 [start, end]"""
+        if v is not None:
+            if len(v) != 2:
+                raise ValueError('page_range must contain exactly 2 elements [start, end]')
+            start, end = v
+            if start < 1:
+                raise ValueError('page_range start must be >= 1')
+            if end < start:
+                raise ValueError('page_range end must be >= start')
+        return v
 
