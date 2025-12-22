@@ -8,4 +8,3 @@ from .skim import skim_crud
 
 __all__ = ['paper_crud', 'anchor_crud', 'card_crud', 'skim_crud']
 
-

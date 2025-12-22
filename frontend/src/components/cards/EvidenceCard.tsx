@@ -178,4 +178,3 @@ export function EvidenceCard({ card, onEdit, onDelete, className }: EvidenceCard
   );
 }
 
-

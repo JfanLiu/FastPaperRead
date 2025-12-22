@@ -37,4 +37,3 @@ class TestCardsAPI:
         assert response.status_code in [200, 422]
         print(f"[OK] 搜索卡片: {response.status_code}")
 
-

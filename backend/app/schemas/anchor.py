@@ -102,4 +102,3 @@ class AnchorSearchRequest(BaseModel):
     page_range: Optional[List[int]] = None  # [start, end]
     limit: int = 20
 
-

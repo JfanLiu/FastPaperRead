@@ -135,4 +135,3 @@ CHECKLIST_TEMPLATES = {
     ],
 }
 
-

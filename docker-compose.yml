@@ -105,4 +105,3 @@ networks:
   fastpaper-network:
     driver: bridge
 
-

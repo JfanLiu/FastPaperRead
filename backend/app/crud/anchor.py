@@ -163,4 +163,3 @@ class AnchorCRUD:
 
 anchor_crud = AnchorCRUD()
 
-

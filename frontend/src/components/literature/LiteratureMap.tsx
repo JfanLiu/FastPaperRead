@@ -322,4 +322,3 @@ function PaperNode({
   );
 }
 
-

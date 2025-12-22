@@ -154,4 +154,3 @@ function TimerPanel() {
   );
 }
 
-

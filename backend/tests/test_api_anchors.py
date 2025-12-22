@@ -26,4 +26,3 @@ class TestAnchorsAPI:
         assert response.status_code == 404
         print(f"[OK] 锚点详情404: {response.json()}")
 
-

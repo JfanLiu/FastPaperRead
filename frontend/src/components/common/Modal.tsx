@@ -74,4 +74,3 @@ export function Modal({ isOpen, onClose, title, children, size = 'md', className
   );
 }
 
-

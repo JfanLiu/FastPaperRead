@@ -94,4 +94,3 @@ class SkimCRUD:
 
 skim_crud = SkimCRUD()
 
-

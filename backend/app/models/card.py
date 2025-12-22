@@ -147,4 +147,3 @@ class NoteCard(Card):
     # 相关卡片
     related_card_ids: List[str] = Field(default_factory=list)
 
-

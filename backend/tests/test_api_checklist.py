@@ -25,4 +25,3 @@ class TestChecklistAPI:
         assert response.status_code in [200, 404, 422]
         print(f"[OK] 添加清单项: {response.status_code}")
 
-

@@ -43,4 +43,3 @@ def init_dependencies():
     # 初始化数据库
     init_db()
 
-

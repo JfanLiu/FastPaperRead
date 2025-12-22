@@ -174,4 +174,3 @@ class FigureExtractor:
         scored_figures.sort(key=lambda x: -x[0])
         return [f[1] for f in scored_figures[:top_n]]
 
-

@@ -164,4 +164,3 @@ class TestIntegration:
         print("\n[OK] 完整上传流程测试通过!")
         return paper_id
 
-

@@ -9,4 +9,3 @@ __all__ = [
     'PaperModel', 'AnchorModel', 'CardModel', 'ChecklistModel'
 ]
 
-

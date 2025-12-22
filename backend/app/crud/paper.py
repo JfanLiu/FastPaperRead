@@ -200,4 +200,3 @@ class PaperCRUD:
 
 paper_crud = PaperCRUD()
 
-
