@@ -4,17 +4,11 @@ API依赖注入
 from typing import Generator
 from sqlalchemy.orm import Session
 
-from ..db.base import SessionLocal, init_db
+from ..db.base import SessionLocal, init_db, get_db  # 从db.base导入get_db，避免重复定义
 from ..core.llm import LLMClient, ContentEnhancer
 
-
-def get_db() -> Generator:
-    """获取数据库会话"""
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+# 注意：get_db 现在从 db.base 导入，不再在此重复定义
+# 这确保所有模块使用同一个函数对象，避免 FastAPI 依赖注入问题
 
 
 # LLM客户端单例

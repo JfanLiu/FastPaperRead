@@ -1,6 +1,7 @@
 """
 锚点API路由
 """
+import re
 from fastapi import APIRouter, HTTPException, Query, Depends
 from sqlalchemy.orm import Session
 from typing import Optional, List
@@ -126,12 +127,14 @@ async def get_reading_route(paper_id: str, route_name: str, db: Session = Depend
     section_anchors = anchor_crud.get_sections(db, paper_id)
     
     # 过滤必读章节（仅对特定路线进行过滤）
+    # 使用单词边界匹配避免误匹配（如 "Method" 匹配 "Methodology"）
     if must_section_list:
         filtered = []
         for anchor in section_anchors:
-            title = (anchor.text or "").lower()
+            title = str(anchor.text or "")
             for must in must_section_list:
-                if must.lower() in title:
+                # 使用正则表达式单词边界匹配
+                if re.search(r'\b' + re.escape(must) + r'\b', title, re.IGNORECASE):
                     filtered.append(anchor)
                     break
         section_anchors = filtered
@@ -221,7 +224,7 @@ async def mark_anchor_read(anchor_id: str, is_read: bool = True, db: Session = D
 
 
 def _is_must_read_section(title: str) -> bool:
-    """判断是否为必读章节"""
+    """判断是否为必读章节（使用单词边界匹配避免误匹配）"""
     must_read = ["abstract", "introduction", "method", "experiment", "conclusion"]
-    return any(kw in title.lower() for kw in must_read)
+    return any(re.search(r'\b' + kw + r'\b', title, re.IGNORECASE) for kw in must_read)
 
