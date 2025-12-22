@@ -13,13 +13,26 @@ from ...schemas.anchor import (
 )
 from ...db.base import get_db
 from ...crud import anchor_crud
-from ...db.models import AnchorType
+from ...db.models import AnchorType, CardAnchorLinkModel, CardModel
 
 router = APIRouter()
 
 
-def _anchor_to_dict(anchor) -> dict:
+def get_anchor_card_ids(db: Session, anchor_id: str) -> List[str]:
+    """获取锚点关联的卡片ID列表"""
+    links = db.query(CardAnchorLinkModel).filter(
+        CardAnchorLinkModel.anchor_id == anchor_id
+    ).all()
+    return [link.card_id for link in links]
+
+
+def _anchor_to_dict(anchor, db: Session = None) -> dict:
     """将AnchorModel转换为字典，与AnchorResponse schema匹配"""
+    # 获取关联的卡片ID
+    card_ids = []
+    if db:
+        card_ids = get_anchor_card_ids(db, anchor.id)
+    
     return {
         "id": anchor.id,
         "paper_id": anchor.paper_id,
@@ -38,7 +51,7 @@ def _anchor_to_dict(anchor) -> dict:
         "symbols": anchor.symbols or [],
         "table_data": anchor.table_data,
         "ref_id": anchor.ref_id,
-        "card_ids": [],  # 暂未实现关联卡片
+        "card_ids": card_ids,
         "cached_explanation": anchor.explanation_cache,
     }
 
@@ -48,14 +61,15 @@ async def get_paper_anchors(
     paper_id: str,
     type: Optional[str] = None,
     page: Optional[int] = None,
+    include_card_ids: bool = Query(False, description="是否包含关联的卡片ID"),
     db: Session = Depends(get_db)
 ):
     """获取论文的所有锚点"""
     # 从数据库获取锚点
     anchors_models = anchor_crud.get_by_paper(db, paper_id, type=type, page=page)
     
-    # 转换为字典列表
-    anchors = [_anchor_to_dict(a) for a in anchors_models]
+    # 转换为字典列表（如果需要card_ids则传入db）
+    anchors = [_anchor_to_dict(a, db if include_card_ids else None) for a in anchors_models]
     
     # 统计各类型数量
     by_type = anchor_crud.count_by_type(db, paper_id)
@@ -178,7 +192,43 @@ async def get_anchor(anchor_id: str, db: Session = Depends(get_db)):
     if not anchor:
         raise HTTPException(404, "锚点不存在")
     
-    return _anchor_to_dict(anchor)
+    return _anchor_to_dict(anchor, db)
+
+
+@router.get("/{anchor_id}/cards", response_model=dict)
+async def get_anchor_cards(anchor_id: str, db: Session = Depends(get_db)):
+    """
+    获取锚点关联的所有卡片
+    
+    返回与该锚点关联的所有卡片详情
+    """
+    anchor = anchor_crud.get(db, anchor_id)
+    if not anchor:
+        raise HTTPException(404, "锚点不存在")
+    
+    # 获取关联的卡片
+    links = db.query(CardAnchorLinkModel).filter(
+        CardAnchorLinkModel.anchor_id == anchor_id
+    ).all()
+    
+    cards = []
+    for link in links:
+        card = db.query(CardModel).filter(CardModel.id == link.card_id).first()
+        if card:
+            cards.append({
+                "id": card.id,
+                "type": card.type.value if hasattr(card.type, 'value') else card.type,
+                "title": card.title,
+                "content": card.content,
+                "link_type": link.link_type,
+                "created_at": card.created_at.isoformat() if card.created_at else None,
+            })
+    
+    return {
+        "anchor_id": anchor_id,
+        "cards": cards,
+        "total": len(cards)
+    }
 
 
 @router.post("/search")
@@ -212,7 +262,7 @@ async def search_anchors(request: AnchorSearchRequest, db: Session = Depends(get
     ]
     
     return {
-        "items": [_anchor_to_dict(a) for a in filtered[:request.limit]],
+        "items": [_anchor_to_dict(a, db) for a in filtered[:request.limit]],
         "total": len(filtered)
     }
 

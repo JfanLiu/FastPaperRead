@@ -17,6 +17,7 @@ from ...db.models import PaperStatus
 from ...schemas.paper import PaperCreate, PaperUpdate, PaperInDB, PaperListResponse
 from ...config import settings
 from ...tasks import process_paper_import
+from ...core.metadata import enrich_paper_metadata
 
 logger = logging.getLogger("fastpaperread.api.papers")
 router = APIRouter()
@@ -92,9 +93,11 @@ async def import_paper_from_url(
     
     支持:
     - PDF直链
-    - arXiv链接 (自动转换为PDF链接)
-    - DOI链接 (尝试获取PDF)
+    - arXiv链接 (自动转换为PDF链接，自动获取元数据)
+    - DOI链接 (自动获取元数据，尝试获取PDF)
     """
+    logger.info(f"[IMPORT] 开始导入论文: {url}")
+    
     # 解析URL类型
     source_type = "url"
     pdf_url = url
@@ -109,6 +112,16 @@ async def import_paper_from_url(
     elif "doi.org" in url:
         source_type = "doi"
         # DOI需要特殊处理，暂时保留原链接
+    
+    # 尝试获取元数据
+    metadata = None
+    try:
+        logger.info(f"[IMPORT] 获取元数据: source_type={source_type}, url={url}")
+        metadata = await enrich_paper_metadata(source_type, url)
+        if metadata:
+            logger.info(f"[IMPORT] 元数据获取成功: title={metadata.get('title', '')[:50]}")
+    except Exception as e:
+        logger.warning(f"[IMPORT] 获取元数据失败: {e}")
     
     # 下载PDF
     file_id = str(uuid.uuid4())
@@ -125,17 +138,34 @@ async def import_paper_from_url(
             
             with open(file_path, "wb") as f:
                 f.write(response.content)
+        logger.info(f"[IMPORT] PDF下载成功: {file_path}")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"下载PDF失败: {str(e)}")
     
-    # 创建论文记录
-    paper = paper_crud.create(
-        db,
-        title=f"Importing from {url}",
-        source_type=source_type,
-        source_value=url,
-        pdf_path=file_path
-    )
+    # 创建论文记录（使用元数据填充字段）
+    paper_data = {
+        "title": f"Importing from {url}",
+        "source_type": source_type,
+        "source_value": url,
+        "pdf_path": file_path,
+    }
+    
+    if metadata:
+        if metadata.get("title"):
+            paper_data["title"] = metadata["title"]
+        if metadata.get("authors"):
+            paper_data["authors"] = metadata["authors"]
+        if metadata.get("year"):
+            paper_data["year"] = metadata["year"]
+        if metadata.get("venue"):
+            paper_data["venue"] = metadata["venue"]
+        if metadata.get("abstract"):
+            paper_data["abstract"] = metadata["abstract"]
+        if metadata.get("keywords"):
+            paper_data["keywords"] = metadata["keywords"]
+    
+    paper = paper_crud.create(db, **paper_data)
+    logger.info(f"[IMPORT] 论文记录已创建: paper_id={paper.id}, title={paper.title[:50] if paper.title else 'N/A'}")
     
     # 创建导入任务
     job = paper_crud.create_import_job(db, paper.id)
@@ -146,7 +176,8 @@ async def import_paper_from_url(
     return {
         "paper_id": paper.id,
         "job_id": job.id,
-        "message": "开始导入"
+        "message": "开始导入",
+        "metadata_fetched": metadata is not None
     }
 
 
@@ -382,3 +413,106 @@ async def update_read_progress(
     if not paper:
         raise HTTPException(status_code=404, detail="论文不存在")
     return {"message": "进度已更新", "progress": progress}
+
+
+@router.post("/{paper_id}/fetch-metadata", response_model=dict)
+async def fetch_paper_metadata(
+    paper_id: str,
+    source_url: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    手动获取/补全论文元数据
+    
+    - 如果提供 source_url，使用该URL获取元数据
+    - 否则使用论文的 source_value 字段
+    
+    支持 arXiv 和 DOI 链接
+    """
+    paper = paper_crud.get(db, paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="论文不存在")
+    
+    # 确定要使用的URL
+    url = source_url or (paper.source_value if paper.source_value else None)
+    if not url:
+        raise HTTPException(status_code=400, detail="没有可用的来源URL")
+    
+    # 确定来源类型
+    source_type_str = str(paper.source_type) if paper.source_type else "url"
+    if "arxiv.org" in url:
+        source_type_str = "arxiv"
+    elif "doi.org" in url:
+        source_type_str = "doi"
+    
+    # 获取元数据
+    try:
+        metadata = await enrich_paper_metadata(source_type_str, url)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取元数据失败: {str(e)}")
+    
+    if not metadata:
+        raise HTTPException(status_code=404, detail="无法获取元数据")
+    
+    # 更新论文信息
+    update_data = {}
+    paper_title = str(paper.title) if paper.title else ""
+    if metadata.get("title") and not paper_title.startswith("Importing"):
+        # 只有当当前标题是临时的才更新
+        pass
+    elif metadata.get("title"):
+        update_data["title"] = metadata["title"]
+    
+    if metadata.get("authors"):
+        update_data["authors"] = metadata["authors"]
+    if metadata.get("year"):
+        update_data["year"] = metadata["year"]
+    if metadata.get("venue"):
+        update_data["venue"] = metadata["venue"]
+    if metadata.get("abstract") and not paper.abstract:
+        update_data["abstract"] = metadata["abstract"]
+    if metadata.get("keywords"):
+        update_data["keywords"] = metadata["keywords"]
+    
+    if update_data:
+        paper = paper_crud.update(db, paper_id, **update_data)
+        logger.info(f"[METADATA] 论文元数据已更新: paper_id={paper_id}")
+    
+    return {
+        "paper_id": paper_id,
+        "metadata": metadata,
+        "updated_fields": list(update_data.keys()),
+        "message": f"已更新 {len(update_data)} 个字段"
+    }
+
+
+@router.post("/lookup-metadata", response_model=dict)
+async def lookup_metadata(
+    url: str,
+):
+    """
+    查询URL的元数据（不创建论文）
+    
+    用于在导入前预览论文信息
+    """
+    # 确定来源类型
+    source_type = "url"
+    if "arxiv.org" in url:
+        source_type = "arxiv"
+    elif "doi.org" in url:
+        source_type = "doi"
+    
+    # 获取元数据
+    try:
+        metadata = await enrich_paper_metadata(source_type, url)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取元数据失败: {str(e)}")
+    
+    if not metadata:
+        raise HTTPException(status_code=404, detail="无法获取元数据")
+    
+    return {
+        "url": url,
+        "source_type": source_type,
+        "metadata": metadata
+    }

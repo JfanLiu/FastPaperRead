@@ -9,7 +9,7 @@ import uuid
 
 from ...api.deps import get_db, get_enhancer
 from ...crud import card_crud, anchor_crud, paper_crud
-from ...db.models import CardType
+from ...db.models import CardType, CardAnchorLinkModel
 from ...core.llm import ContentEnhancer
 from ...schemas.card import (
     CardCreate, CardUpdate, CardResponse, CardListResponse,
@@ -17,6 +17,26 @@ from ...schemas.card import (
 )
 
 router = APIRouter()
+
+
+def create_card_anchor_links(db: Session, card_id: str, anchor_ids: List[str], link_type: str = "source"):
+    """创建卡片-锚点关联"""
+    for anchor_id in anchor_ids:
+        # 检查是否已存在
+        existing = db.query(CardAnchorLinkModel).filter(
+            CardAnchorLinkModel.card_id == card_id,
+            CardAnchorLinkModel.anchor_id == anchor_id
+        ).first()
+        
+        if not existing:
+            link = CardAnchorLinkModel(
+                card_id=card_id,
+                anchor_id=anchor_id,
+                link_type=link_type
+            )
+            db.add(link)
+    
+    db.commit()
 
 
 def card_to_response(card) -> dict:
@@ -91,6 +111,10 @@ async def create_card(
         pseudocode=getattr(card, 'pseudocode', None),
         complexity=getattr(card, 'complexity', None),
     )
+    
+    # 创建卡片-锚点关联
+    if card.source_anchor_ids:
+        create_card_anchor_links(db, new_card.id, card.source_anchor_ids, "source")
     
     return card_to_response(new_card)
 
@@ -167,7 +191,112 @@ async def create_card_from_anchor(
     # 创建卡片
     new_card = card_crud.create(db, **card_data)
     
+    # 创建卡片-锚点关联
+    create_card_anchor_links(db, new_card.id, [request.anchor_id], "source")
+    
     return card_to_response(new_card)
+
+
+@router.get("/{card_id}/anchors", response_model=dict)
+async def get_card_anchors(
+    card_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    获取卡片关联的所有锚点
+    
+    返回与该卡片关联的所有锚点详情
+    """
+    card = card_crud.get(db, card_id)
+    if not card:
+        raise HTTPException(404, "卡片不存在")
+    
+    # 从关联表获取锚点
+    links = db.query(CardAnchorLinkModel).filter(
+        CardAnchorLinkModel.card_id == card_id
+    ).all()
+    
+    anchors = []
+    for link in links:
+        anchor = anchor_crud.get(db, link.anchor_id)
+        if anchor:
+            anchors.append({
+                "id": anchor.id,
+                "type": anchor.type.value if hasattr(anchor.type, 'value') else anchor.type,
+                "page": anchor.page,
+                "section": anchor.section,
+                "text": (anchor.text or "")[:200],
+                "link_type": link.link_type,
+            })
+    
+    return {
+        "card_id": card_id,
+        "anchors": anchors,
+        "total": len(anchors)
+    }
+
+
+@router.post("/{card_id}/link-anchor", response_model=dict)
+async def link_card_to_anchor(
+    card_id: str,
+    anchor_id: str,
+    link_type: str = "reference",
+    db: Session = Depends(get_db)
+):
+    """
+    将卡片与锚点关联
+    
+    - link_type: source=来源锚点, reference=引用锚点
+    """
+    card = card_crud.get(db, card_id)
+    if not card:
+        raise HTTPException(404, "卡片不存在")
+    
+    anchor = anchor_crud.get(db, anchor_id)
+    if not anchor:
+        raise HTTPException(404, "锚点不存在")
+    
+    # 检查是否已存在
+    existing = db.query(CardAnchorLinkModel).filter(
+        CardAnchorLinkModel.card_id == card_id,
+        CardAnchorLinkModel.anchor_id == anchor_id
+    ).first()
+    
+    if existing:
+        return {"message": "关联已存在", "link_id": existing.id}
+    
+    # 创建关联
+    link = CardAnchorLinkModel(
+        card_id=card_id,
+        anchor_id=anchor_id,
+        link_type=link_type
+    )
+    db.add(link)
+    db.commit()
+    db.refresh(link)
+    
+    return {"message": "关联已创建", "link_id": link.id}
+
+
+@router.delete("/{card_id}/unlink-anchor/{anchor_id}")
+async def unlink_card_from_anchor(
+    card_id: str,
+    anchor_id: str,
+    db: Session = Depends(get_db)
+):
+    """取消卡片与锚点的关联"""
+    link = db.query(CardAnchorLinkModel).filter(
+        CardAnchorLinkModel.card_id == card_id,
+        CardAnchorLinkModel.anchor_id == anchor_id
+    ).first()
+    
+    if not link:
+        raise HTTPException(404, "关联不存在")
+    
+    db.delete(link)
+    db.commit()
+    
+    return {"message": "关联已删除"}
 
 
 @router.get("/paper/{paper_id}", response_model=dict)

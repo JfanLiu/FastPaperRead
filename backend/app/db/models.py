@@ -301,6 +301,21 @@ class CompareSetModel(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class CardAnchorLinkModel(Base):
+    """卡片-锚点关联表"""
+    __tablename__ = "card_anchor_links"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    card_id = Column(String(36), ForeignKey("cards.id", ondelete="CASCADE"), nullable=False)
+    anchor_id = Column(String(36), ForeignKey("anchors.id", ondelete="CASCADE"), nullable=False)
+    
+    # 关联类型：source=卡片来源锚点, reference=卡片引用锚点
+    link_type = Column(String(20), default="source")
+    
+    # 时间戳
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class ReviewModel(Base):
     """审稿记录表"""
     __tablename__ = "reviews"

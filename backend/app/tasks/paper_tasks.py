@@ -12,6 +12,7 @@ from ..db.base import SessionLocal
 from ..db.models import PaperModel, AnchorModel, PaperStatus, AnchorType, ImportJobModel
 from ..core.parser.pdf_parser import pdf_parser
 from ..core.parser.anchor_extractor import anchor_extractor
+from ..core.websocket import send_import_progress
 
 logger = logging.getLogger(__name__)
 
@@ -60,15 +61,15 @@ async def _process_paper_import_async(paper_id: str, pdf_path: str):
         db.commit()
         
         # Step 1: 解析PDF
-        _update_job_progress(db, job, 10, "download", "completed", "正在解析PDF...")
+        await _update_job_progress(db, job, paper_id, 10, "download", "completed", "正在解析PDF...")
         
         parse_result = await pdf_parser.parse(pdf_path)
         
         if not parse_result.success:
-            _update_job_error(db, job, paper, f"PDF解析失败: {parse_result.error}")
+            await _update_job_error(db, job, paper, paper_id, f"PDF解析失败: {parse_result.error}")
             return
         
-        _update_job_progress(db, job, 30, "parse_text", "completed", "正在提取章节...")
+        await _update_job_progress(db, job, paper_id, 30, "parse_text", "completed", "正在提取章节...")
         
         # 保存Markdown路径
         paper.markdown_path = parse_result.markdown_path
@@ -83,7 +84,7 @@ async def _process_paper_import_async(paper_id: str, pdf_path: str):
             except Exception as e:
                 logger.warning(f"读取Markdown失败: {e}")
         
-        _update_job_progress(db, job, 50, "extract_sections", "completed", "正在提取图表...")
+        await _update_job_progress(db, job, paper_id, 50, "extract_sections", "completed", "正在提取图表...")
         
         # Step 3: 提取锚点
         anchors = anchor_extractor.extract_from_markdown(
@@ -94,7 +95,7 @@ async def _process_paper_import_async(paper_id: str, pdf_path: str):
             equations=parse_result.equations
         )
         
-        _update_job_progress(db, job, 70, "extract_figures", "completed", "正在生成锚点...")
+        await _update_job_progress(db, job, paper_id, 70, "extract_figures", "completed", "正在生成锚点...")
         
         # Step 4: 保存锚点到数据库
         for anchor_data in anchor_extractor.to_dict_list(anchors):
@@ -120,7 +121,7 @@ async def _process_paper_import_async(paper_id: str, pdf_path: str):
         
         db.commit()
         
-        _update_job_progress(db, job, 90, "generate_anchors", "completed", "正在提取元数据...")
+        await _update_job_progress(db, job, paper_id, 90, "generate_anchors", "completed", "正在提取元数据...")
         
         # Step 5: 更新元数据
         metadata = parse_result.metadata
@@ -171,11 +172,20 @@ async def _process_paper_import_async(paper_id: str, pdf_path: str):
         
         db.commit()
         
+        # 发送完成消息
+        await send_import_progress(
+            paper_id=paper_id,
+            progress=100,
+            step="completed",
+            message="导入完成",
+            status="completed"
+        )
+        
         logger.info(f"论文导入完成: {paper_id}, 提取了 {len(anchors)} 个锚点")
         
     except Exception as e:
         logger.exception(f"论文处理失败: {paper_id}")
-        _update_job_error(db, None, None, str(e))
+        await _update_job_error(db, None, None, paper_id, str(e))
         
         # 尝试更新状态
         try:
@@ -190,31 +200,43 @@ async def _process_paper_import_async(paper_id: str, pdf_path: str):
         db.close()
 
 
-def _update_job_progress(
+async def _update_job_progress(
     db: Session,
     job: Optional[ImportJobModel],
+    paper_id: str,
     progress: float,
     step: str,
     step_status: str,
     message: str
 ):
-    """更新任务进度"""
+    """更新任务进度并发送WebSocket通知"""
     if job:
         job.progress = progress
         job.current_step = message
         if job.steps:
             job.steps[step] = step_status
         db.commit()
+    
+    # 发送WebSocket进度更新
+    await send_import_progress(
+        paper_id=paper_id,
+        progress=progress,
+        step=step,
+        message=message,
+        status="running"
+    )
+    
     logger.info(f"任务进度: {progress}% - {message}")
 
 
-def _update_job_error(
+async def _update_job_error(
     db: Session,
     job: Optional[ImportJobModel],
     paper: Optional[PaperModel],
+    paper_id: str,
     error_message: str
 ):
-    """更新任务错误"""
+    """更新任务错误并发送WebSocket通知"""
     logger.error(f"任务失败: {error_message}")
     
     if job:
@@ -230,4 +252,13 @@ def _update_job_error(
             db.commit()
         except:
             pass
+    
+    # 发送WebSocket错误通知
+    await send_import_progress(
+        paper_id=paper_id,
+        progress=0,
+        step="error",
+        message=error_message,
+        status="failed"
+    )
 

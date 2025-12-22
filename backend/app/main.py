@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 import os
 
 from .config import settings
-from .api.v1 import papers, anchors, cards, skim, enhance, compare, review, export, checklist
+from .api.v1 import papers, anchors, cards, skim, enhance, compare, review, export, checklist, ws
 
 
 @asynccontextmanager
@@ -69,6 +69,7 @@ app.include_router(compare.router, prefix="/api/v1/compare", tags=["Compare"])
 app.include_router(review.router, prefix="/api/v1/review", tags=["Review"])
 app.include_router(export.router, prefix="/api/v1/export", tags=["Export"])
 app.include_router(checklist.router, prefix="/api/v1/checklist", tags=["Checklist"])
+app.include_router(ws.router, prefix="/ws", tags=["WebSocket"])
 
 
 @app.get("/")
