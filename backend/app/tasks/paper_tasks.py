@@ -124,13 +124,31 @@ async def _process_paper_import_async(paper_id: str, pdf_path: str):
         
         # Step 5: 更新元数据
         metadata = parse_result.metadata
-        if metadata.get('title') and not paper.title.startswith('Importing'):
-            pass  # 保留用户提供的标题
-        elif metadata.get('title'):
-            paper.title = metadata['title']
+        logger.info(f"提取的元数据: {metadata}")
         
+        # 更新标题（如果当前标题是文件名或导入中的占位标题）
+        if metadata.get('title'):
+            current_title = paper.title or ""
+            if current_title.startswith('Importing') or current_title.endswith('.pdf') or not current_title:
+                paper.title = metadata['title']
+        
+        # 更新作者
+        if metadata.get('authors'):
+            paper.authors = metadata['authors']
+        
+        # 更新年份
+        if metadata.get('year'):
+            paper.year = metadata['year']
+        
+        # 更新会议/期刊
+        if metadata.get('venue'):
+            paper.venue = metadata['venue']
+        
+        # 更新摘要
         if metadata.get('abstract'):
             paper.abstract = metadata['abstract']
+        
+        # 更新关键词
         if metadata.get('keywords'):
             paper.keywords = metadata['keywords']
         
@@ -212,5 +230,4 @@ def _update_job_error(
             db.commit()
         except:
             pass
-
 

@@ -335,39 +335,142 @@ class PDFParser:
             "title": "",
             "authors": [],
             "abstract": "",
-            "keywords": []
+            "keywords": [],
+            "year": None,
+            "venue": None
         }
         
-        # 尝试提取标题（通常是第一个非空行）
         lines = text.strip().split("\n")
+        clean_lines = []
         for line in lines:
             line = line.strip()
-            if line and not line.startswith("#") and not line.startswith("<!--"):
-                metadata["title"] = line[:200]  # 限制长度
+            # 跳过空行、页码标记、分隔线
+            if line and not line.startswith("<!--") and not line.startswith("---") and not re.match(r'^\d+$', line):
+                clean_lines.append(line)
+        
+        # 寻找标题 - 跳过出版信息行（如 "To appear in..."）
+        title_idx = 0
+        for i, line in enumerate(clean_lines[:10]):
+            # 跳过出版信息
+            if re.match(r'^(To appear|Published|Accepted|Submitted|Preprint)', line, re.IGNORECASE):
+                continue
+            # 跳过太短的行
+            if len(line) < 5:
+                continue
+            # 找到看起来像标题的行
+            if len(line) > 5 and not re.match(r'^(Abstract|Keywords|Introduction)', line, re.IGNORECASE):
+                metadata["title"] = line[:200]
+                title_idx = i
                 break
+        
+        # 寻找作者 - 在标题之后、摘要之前
+        for i, line in enumerate(clean_lines[title_idx+1:title_idx+20]):
+            # 遇到摘要就停止
+            if re.match(r'^Abstract', line, re.IGNORECASE):
+                break
+            
+            # 跳过机构名称（通常全大写或包含University/Institute等）
+            if re.match(r'^[A-Z\s]{3,}$', line):  # 纯大写行
+                continue
+            if re.search(r'^(University|Institute|Laboratory|Department|NVIDIA|Google|Microsoft|Meta|Facebook|School|College)\b', line, re.IGNORECASE):
+                continue
+            
+            # 清理特殊符号并检查是否像作者名
+            clean_line = re.sub(r'[∗†‡\*\d\[\]\(\)]+', '', line).strip()
+            # 处理特殊的变音符号（如 M¨uller -> Müller）
+            clean_line = clean_line.replace('¨u', 'ü').replace('¨o', 'ö').replace('¨a', 'ä')
+            
+            # 检查是否像单个作者名（FirstName LastName 或 FirstName M. LastName）
+            # 支持各种Unicode字符
+            if re.match(r'^[A-Z][a-zA-Z\u00C0-\u017F]+\s+(?:[A-Z]\.?\s+)?[A-Z][a-zA-Z\u00C0-\u017F]+$', clean_line):
+                metadata["authors"].append(clean_line)
+                continue
+            
+            # 检查是否是多个作者在一行（逗号分隔）
+            if ',' in line or ' and ' in line.lower():
+                parts = re.split(r',\s*(?:and\s+)?|\s+and\s+', line, flags=re.IGNORECASE)
+                for part in parts:
+                    clean_part = re.sub(r'[∗†‡\*\d\[\]\(\)]+', '', part).strip()
+                    clean_part = clean_part.replace('¨u', 'ü').replace('¨o', 'ö').replace('¨a', 'ä')
+                    if re.match(r'^[A-Z][a-zA-Z\u00C0-\u017F]+\s+(?:[A-Z]\.?\s+)?[A-Z][a-zA-Z\u00C0-\u017F]+$', clean_part):
+                        metadata["authors"].append(clean_part)
+        
+        # 去重并限制数量
+        metadata["authors"] = list(dict.fromkeys(metadata["authors"]))[:20]
         
         # 尝试提取摘要
         abstract_match = re.search(
-            r'(?:Abstract|摘要)[:\s]*(.+?)(?=\n\n|\n#|Introduction|1\.|Keywords)',
+            r'(?:Abstract|摘要)[:\s]*\n?(.+?)(?=\n(?:CR Categories|Keywords|Introduction|1\s|1\.|\n#))',
             text,
             re.IGNORECASE | re.DOTALL
         )
         if abstract_match:
-            metadata["abstract"] = abstract_match.group(1).strip()[:2000]
+            abstract_text = abstract_match.group(1).strip()
+            # 清理换行符
+            abstract_text = re.sub(r'\s+', ' ', abstract_text)
+            metadata["abstract"] = abstract_text[:2000]
         
         # 尝试提取关键词
         keywords_match = re.search(
-            r'(?:Keywords?|关键词)[:\s]*(.+?)(?=\n\n|\n#)',
+            r'Keywords?[:\s]*(.+?)(?=\n\n|\n\d\.|\nIntroduction)',
             text,
-            re.IGNORECASE
+            re.IGNORECASE | re.DOTALL
         )
         if keywords_match:
-            keywords_text = keywords_match.group(1)
+            keywords_text = keywords_match.group(1).strip()
+            # 清理并分割
+            keywords_text = re.sub(r'\s+', ' ', keywords_text)
             metadata["keywords"] = [
                 k.strip() 
                 for k in re.split(r'[,;，；]', keywords_text) 
-                if k.strip()
+                if k.strip() and len(k.strip()) < 100 and len(k.strip()) > 2
             ][:10]
+        
+        # 尝试提取年份 - 按优先级排序
+        # 1. 首先从出版信息中提取（如 TOG 32(4) 表示2013年）
+        tog_match = re.search(r'TOG\s+(\d+)\s*\(', text[:500], re.IGNORECASE)
+        if tog_match:
+            vol = int(tog_match.group(1))
+            year = 1981 + vol  # ACM TOG 卷1 = 1982年
+            if 1990 <= year <= 2030:
+                metadata["year"] = year
+        
+        # 2. 如果没找到，从SIGGRAPH年份提取
+        if not metadata["year"]:
+            siggraph_match = re.search(r'SIGGRAPH\s*(\'?(\d{2})|\d{4})', text[:1000], re.IGNORECASE)
+            if siggraph_match:
+                year_str = siggraph_match.group(2) or siggraph_match.group(1)
+                year_str = year_str.replace("'", "")
+                if len(year_str) == 2:
+                    year_num = int(year_str)
+                    year = 2000 + year_num if year_num < 50 else 1900 + year_num
+                else:
+                    year = int(year_str)
+                if 1990 <= year <= 2030:
+                    metadata["year"] = year
+        
+        # 3. 最后尝试从标题/出版信息附近找明确的年份（避免引用中的年份）
+        if not metadata["year"]:
+            # 只在前300个字符中找（通常是标题和出版信息）
+            year_match = re.search(r'\b(20[0-2][0-9]|201[0-9])\b', text[:300])
+            if year_match:
+                metadata["year"] = int(year_match.group(1))
+        
+        # 尝试提取会议/期刊
+        venue_patterns = [
+            r'(SIGGRAPH\s*\d*)',
+            r'(ACM\s+TOG|ACM\s+Transactions\s+on\s+Graphics)',
+            r'(CVPR|ICCV|ECCV|NeurIPS|ICML|ICLR|AAAI|IJCAI|CHI)\s*\d*',
+            r'(?:To appear in|Published in|Accepted by)\s+([^\n\.]+)',
+        ]
+        for pattern in venue_patterns:
+            venue_match = re.search(pattern, text[:2000], re.IGNORECASE)
+            if venue_match:
+                venue = venue_match.group(1).strip()
+                # 简化会议名称
+                venue = re.sub(r'\s+', ' ', venue)
+                metadata["venue"] = venue[:100]
+                break
         
         return metadata
 
