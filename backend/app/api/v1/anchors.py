@@ -1,7 +1,8 @@
 """
 锚点API路由
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
+from sqlalchemy.orm import Session
 from typing import Optional, List
 
 from ...schemas.anchor import (
@@ -9,33 +10,54 @@ from ...schemas.anchor import (
     SectionTreeResponse, ReadingRouteResponse,
     AnchorSearchRequest
 )
+from ...db.base import get_db
+from ...crud import anchor_crud
+from ...db.models import AnchorType
 
 router = APIRouter()
 
-# 临时存储
-_anchors_db = {}
+
+def _anchor_to_dict(anchor) -> dict:
+    """将AnchorModel转换为字典，与AnchorResponse schema匹配"""
+    return {
+        "id": anchor.id,
+        "paper_id": anchor.paper_id,
+        "type": anchor.type.value if isinstance(anchor.type, AnchorType) else anchor.type,
+        "page": anchor.page or 1,
+        "bbox": anchor.bbox,
+        "section": anchor.section,
+        "section_level": anchor.section_level or 0,
+        "sequence": anchor.sequence or 0,
+        "text": anchor.text or "",
+        "caption": anchor.caption,
+        "image_path": anchor.image_path,
+        "figure_number": anchor.figure_number,
+        "latex": anchor.latex,
+        "equation_number": anchor.equation_number,
+        "symbols": anchor.symbols or [],
+        "table_data": anchor.table_data,
+        "ref_id": anchor.ref_id,
+        "card_ids": [],  # 暂未实现关联卡片
+        "cached_explanation": anchor.explanation_cache,
+    }
 
 
 @router.get("/paper/{paper_id}", response_model=AnchorListResponse)
 async def get_paper_anchors(
     paper_id: str,
     type: Optional[str] = None,
-    page: Optional[int] = None
+    page: Optional[int] = None,
+    db: Session = Depends(get_db)
 ):
     """获取论文的所有锚点"""
-    anchors = [a for a in _anchors_db.values() if a.get("paper_id") == paper_id]
+    # 从数据库获取锚点
+    anchors_models = anchor_crud.get_by_paper(db, paper_id, type=type, page=page)
     
-    # 过滤
-    if type:
-        anchors = [a for a in anchors if a.get("type") == type]
-    if page:
-        anchors = [a for a in anchors if a.get("page") == page]
+    # 转换为字典列表
+    anchors = [_anchor_to_dict(a) for a in anchors_models]
     
-    # 统计
-    by_type = {}
-    for a in anchors:
-        t = a.get("type", "unknown")
-        by_type[t] = by_type.get(t, 0) + 1
+    # 统计各类型数量
+    by_type = anchor_crud.count_by_type(db, paper_id)
     
     return AnchorListResponse(
         items=anchors,
@@ -45,26 +67,23 @@ async def get_paper_anchors(
 
 
 @router.get("/paper/{paper_id}/sections", response_model=SectionTreeResponse)
-async def get_section_tree(paper_id: str):
+async def get_section_tree(paper_id: str, db: Session = Depends(get_db)):
     """获取章节树"""
-    # 获取章节锚点
-    section_anchors = [
-        a for a in _anchors_db.values() 
-        if a.get("paper_id") == paper_id and a.get("type") == "section"
-    ]
+    # 从数据库获取章节锚点
+    section_anchors = anchor_crud.get_sections(db, paper_id)
     
     # 构建树（简化版）
     sections = []
-    for anchor in sorted(section_anchors, key=lambda x: x.get("sequence", 0)):
+    for anchor in section_anchors:
         sections.append({
-            "id": anchor["id"],
-            "title": anchor.get("text", ""),
-            "level": anchor.get("section_level", 1),
-            "anchor_id": anchor["id"],
-            "page": anchor.get("page", 1),
+            "id": anchor.id,
+            "title": anchor.text or "",
+            "level": anchor.section_level or 1,
+            "anchor_id": anchor.id,
+            "page": anchor.page or 1,
             "children": [],
-            "is_read": False,
-            "is_must_read": _is_must_read_section(anchor.get("text", ""))
+            "is_read": getattr(anchor, 'is_read', False),
+            "is_must_read": _is_must_read_section(anchor.text or "")
         })
     
     return SectionTreeResponse(
@@ -74,7 +93,7 @@ async def get_section_tree(paper_id: str):
 
 
 @router.get("/paper/{paper_id}/routes/{route_name}", response_model=ReadingRouteResponse)
-async def get_reading_route(paper_id: str, route_name: str):
+async def get_reading_route(paper_id: str, route_name: str, db: Session = Depends(get_db)):
     """获取阅读路线"""
     routes = {
         "quick_repro": {
@@ -102,32 +121,29 @@ async def get_reading_route(paper_id: str, route_name: str):
     
     route = routes[route_name]
     
-    # 获取章节
-    section_anchors = [
-        a for a in _anchors_db.values() 
-        if a.get("paper_id") == paper_id and a.get("type") == "section"
-    ]
+    # 从数据库获取章节锚点
+    section_anchors = anchor_crud.get_sections(db, paper_id)
     
     # 过滤必读章节
     if route["must_sections"]:
         filtered = []
-        for section in section_anchors:
-            title = section.get("text", "").lower()
+        for anchor in section_anchors:
+            title = (anchor.text or "").lower()
             for must in route["must_sections"]:
                 if must.lower() in title:
-                    filtered.append(section)
+                    filtered.append(anchor)
                     break
         section_anchors = filtered
     
     sections = [
         {
-            "id": a["id"],
-            "title": a.get("text", ""),
-            "level": a.get("section_level", 1),
-            "anchor_id": a["id"],
-            "page": a.get("page", 1),
+            "id": a.id,
+            "title": a.text or "",
+            "level": a.section_level or 1,
+            "anchor_id": a.id,
+            "page": a.page or 1,
             "children": [],
-            "is_read": False,
+            "is_read": getattr(a, 'is_read', False),
             "is_must_read": True
         }
         for a in section_anchors
@@ -143,49 +159,58 @@ async def get_reading_route(paper_id: str, route_name: str):
 
 
 @router.get("/{anchor_id}", response_model=AnchorResponse)
-async def get_anchor(anchor_id: str):
+async def get_anchor(anchor_id: str, db: Session = Depends(get_db)):
     """获取单个锚点"""
-    if anchor_id not in _anchors_db:
+    anchor = anchor_crud.get(db, anchor_id)
+    if not anchor:
         raise HTTPException(404, "锚点不存在")
     
-    return _anchors_db[anchor_id]
+    return _anchor_to_dict(anchor)
 
 
 @router.post("/search")
-async def search_anchors(request: AnchorSearchRequest):
+async def search_anchors(request: AnchorSearchRequest, db: Session = Depends(get_db)):
     """搜索锚点"""
-    anchors = list(_anchors_db.values())
+    # 获取所有锚点
+    all_anchors = db.query(anchor_crud.get.__self__.__class__).all() if hasattr(anchor_crud, 'get') else []
+    
+    # 获取所有论文的锚点（简化搜索）
+    from ...db.models import AnchorModel
+    query = db.query(AnchorModel)
     
     # 按类型过滤
     if request.types:
-        anchors = [a for a in anchors if a.get("type") in request.types]
+        query = query.filter(AnchorModel.type.in_(request.types))
     
     # 按页码范围过滤
     if request.page_range:
         start, end = request.page_range
-        anchors = [a for a in anchors if start <= a.get("page", 0) <= end]
+        query = query.filter(AnchorModel.page >= start, AnchorModel.page <= end)
+    
+    anchors = query.all()
     
     # 关键词搜索
     query_lower = request.query.lower()
-    anchors = [
+    filtered = [
         a for a in anchors 
-        if query_lower in a.get("text", "").lower() or 
-           query_lower in a.get("caption", "").lower()
+        if query_lower in (a.text or "").lower() or 
+           query_lower in (a.caption or "").lower()
     ]
     
     return {
-        "items": anchors[:request.limit],
-        "total": len(anchors)
+        "items": [_anchor_to_dict(a) for a in filtered[:request.limit]],
+        "total": len(filtered)
     }
 
 
 @router.put("/{anchor_id}/read")
-async def mark_anchor_read(anchor_id: str, is_read: bool = True):
+async def mark_anchor_read(anchor_id: str, is_read: bool = True, db: Session = Depends(get_db)):
     """标记锚点已读"""
-    if anchor_id not in _anchors_db:
+    anchor = anchor_crud.get(db, anchor_id)
+    if not anchor:
         raise HTTPException(404, "锚点不存在")
     
-    _anchors_db[anchor_id]["is_read"] = is_read
+    anchor_crud.update(db, anchor_id, is_read=is_read)
     return {"message": "已更新"}
 
 

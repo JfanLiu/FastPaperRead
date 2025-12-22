@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
-import { PDFViewer, AnchorList, EnhancePanel } from '@/components/reader';
+import dynamic from 'next/dynamic';
+import { AnchorList, EnhancePanel } from '@/components/reader';
 import { Button, Badge, Progress } from '@/components/common';
 import { cn } from '@/lib/utils';
 import { getPdfUrl, paperApi, anchorApi, cardApi } from '@/lib/api';
@@ -17,7 +18,24 @@ import {
   Settings,
   Save,
   Share,
+  Loader2,
 } from 'lucide-react';
+
+// 动态导入 PDFViewer，禁用服务端渲染以避免 DOMMatrix 错误
+const PDFViewer = dynamic(
+  () => import('@/components/reader/PDFViewer').then(mod => ({ default: mod.PDFViewer })),
+  { 
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-full bg-gray-100">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+          <span className="text-gray-500">加载 PDF 阅读器...</span>
+        </div>
+      </div>
+    )
+  }
+);
 
 type ViewMode = 'pdf' | 'markdown' | 'split';
 type RightPanelMode = 'anchors' | 'enhance' | 'cards' | 'notes';
