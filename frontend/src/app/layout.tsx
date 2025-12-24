@@ -1,9 +1,6 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
 import './globals.css';
 import { Providers } from './providers';
-
-const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'FastPaperRead - AI驱动论文阅读平台',
@@ -17,7 +14,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN">
-      <body className={inter.className}>
+      <body className="font-sans" style={{ fontFamily: "'Inter', system-ui, -apple-system, sans-serif" }}>
         <Providers>{children}</Providers>
       </body>
     </html>
