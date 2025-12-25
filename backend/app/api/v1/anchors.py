@@ -33,12 +33,20 @@ def _anchor_to_dict(anchor, db: Session = None) -> dict:
     if db:
         card_ids = get_anchor_card_ids(db, anchor.id)
     
+    # 转换 bbox 格式：列表 [x1,y1,x2,y2] -> 字典 {x1,y1,x2,y2}
+    bbox = None
+    if anchor.bbox:
+        if isinstance(anchor.bbox, list) and len(anchor.bbox) >= 4:
+            bbox = {"x1": anchor.bbox[0], "y1": anchor.bbox[1], "x2": anchor.bbox[2], "y2": anchor.bbox[3]}
+        elif isinstance(anchor.bbox, dict):
+            bbox = anchor.bbox
+    
     return {
         "id": anchor.id,
         "paper_id": anchor.paper_id,
         "type": anchor.type.value if isinstance(anchor.type, AnchorType) else anchor.type,
         "page": anchor.page or 1,
-        "bbox": anchor.bbox,
+        "bbox": bbox,
         "section": anchor.section,
         "section_level": anchor.section_level or 0,
         "sequence": anchor.sequence or 0,

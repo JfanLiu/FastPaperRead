@@ -207,6 +207,8 @@ class AnchorExtractor:
         # 合并MinerU的图表和公式信息
         if figures:
             anchors = self._merge_figures(anchors, figures)
+            # 直接从 figures 列表创建 figure anchors（如果还没有）
+            anchors = self._add_figure_anchors(anchors, figures, sequence)
         if tables:
             anchors = self._merge_tables(anchors, tables)
         if equations:
@@ -307,6 +309,51 @@ class AnchorExtractor:
                             anchor.figure_number = fig.get('number', fig_num)
                             anchor.caption = fig.get('caption', anchor.caption)
                             break
+        
+        return anchors
+    
+    def _add_figure_anchors(self, anchors: List[ExtractedAnchor], figures: List[Dict], start_sequence: int) -> List[ExtractedAnchor]:
+        """
+        直接从 figures 列表创建 figure anchors
+        
+        MinerU 解析的图片包含 path, caption, page_idx 等信息
+        """
+        # 获取已有的 figure image paths，避免重复
+        existing_paths = {a.image_path for a in anchors if a.type == 'figure' and a.image_path}
+        
+        sequence = start_sequence
+        for idx, fig in enumerate(figures):
+            img_path = fig.get('path', '')
+            
+            # 跳过已存在的图片
+            if img_path in existing_paths:
+                continue
+            
+            # 获取页码（MinerU 使用 page_idx，从 0 开始）
+            page = fig.get('page_idx', 0) + 1
+            
+            # 获取 caption
+            caption = fig.get('caption', '')
+            if not caption:
+                captions = fig.get('image_caption', [])
+                if captions:
+                    caption = ' '.join(captions) if isinstance(captions, list) else str(captions)
+            
+            # 创建 figure anchor
+            anchor = ExtractedAnchor(
+                type='figure',
+                page=page,
+                sequence=sequence,
+                section='',  # 后续可以根据页码推断所属章节
+                section_level=0,
+                text=caption or f'Figure {idx + 1}',
+                caption=caption,
+                image_path=img_path,
+                figure_number=fig.get('id', f'fig_{idx + 1}'),
+                bbox=fig.get('bbox')
+            )
+            anchors.append(anchor)
+            sequence += 1
         
         return anchors
     

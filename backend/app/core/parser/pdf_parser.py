@@ -315,14 +315,27 @@ class PDFParser:
             except Exception as e:
                 logger.warning(f"读取 content_list.json 失败: {e}")
         
-        # 提取各类元素
+        # 提取各类元素，并转换图片路径为可访问的 URL
         figures = []
         tables = []
         equations = []
         
-        for item in content_list:
+        # 计算图片的 URL 前缀：/output/{pdf_name}/{pdf_name}/auto/
+        image_url_prefix = f"/output/{pdf_name}/{pdf_name}/auto/"
+        
+        for idx, item in enumerate(content_list):
             item_type = item.get("type", "")
             if item_type in ("image", "figure"):
+                # 转换 img_path 为可访问的 URL
+                img_path = item.get("img_path", "")
+                if img_path:
+                    # img_path 格式: images/xxx.jpg -> /output/{pdf_name}/{pdf_name}/auto/images/xxx.jpg
+                    item["path"] = f"{image_url_prefix}{img_path}"
+                    item["id"] = f"fig_{idx}"
+                    # 提取 caption
+                    captions = item.get("image_caption", [])
+                    if captions:
+                        item["caption"] = " ".join(captions) if isinstance(captions, list) else captions
                 figures.append(item)
             elif item_type == "table":
                 tables.append(item)

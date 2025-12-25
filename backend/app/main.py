@@ -59,6 +59,10 @@ app.add_middleware(
 if os.path.exists(settings.UPLOAD_DIR):
     app.mount("/files", StaticFiles(directory=settings.UPLOAD_DIR), name="files")
 
+# 挂载 output 目录用于图片访问
+if os.path.exists(settings.OUTPUT_DIR):
+    app.mount("/output", StaticFiles(directory=settings.OUTPUT_DIR), name="output")
+
 # 注册路由
 app.include_router(papers.router, prefix="/api/v1/papers", tags=["Papers"])
 app.include_router(anchors.router, prefix="/api/v1/anchors", tags=["Anchors"])
