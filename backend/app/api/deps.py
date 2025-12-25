@@ -10,6 +10,9 @@ from ..core.llm import LLMClient, ContentEnhancer
 # 注意：get_db 现在从 db.base 导入，不再在此重复定义
 # 这确保所有模块使用同一个函数对象，避免 FastAPI 依赖注入问题
 
+# 明确导出 get_db，使其可以被其他模块通过 from api.deps import get_db 导入
+__all__ = ['get_db', 'get_llm_client', 'get_enhancer', 'init_dependencies']
+
 
 # LLM客户端单例
 _llm_client = None
