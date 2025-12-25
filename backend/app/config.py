@@ -66,6 +66,8 @@ class Settings(BaseSettings):
     
     # PDF解析配置
     MINERU_USE_GPU: bool = True
+    MINERU_FAST_MODE: bool = False  # 快速模式：关闭公式/表格识别，速度提升2倍
+    MINERU_GPU_ID: str = "0"  # 使用的GPU编号
     
     class Config:
         env_file = find_env_file()

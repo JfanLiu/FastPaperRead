@@ -11,6 +11,8 @@ from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 import logging
 
+from app.config import settings
+
 logger = logging.getLogger(__name__)
 
 # 缓存 MinerU 安装状态
@@ -120,20 +122,35 @@ class PDFParser:
         运行MinerU进行解析
         
         MinerU 2.x 命令: mineru -p {pdf_path} -o {output_path}
+        
+        加速选项：
+        - --device cuda: 使用 GPU 加速
+        - --formula false: 关闭公式识别（可选，节省时间）
+        - --table false: 关闭表格识别（可选，节省时间）
         """
         try:
             # 使用 mineru 命令行工具（新版本）
             cmd = [
                 "mineru",
                 "-p", str(pdf_path),
-                "-o", str(output_path)
+                "-o", str(output_path),
+                "--device", "cuda",  # 强制使用 GPU 加速
             ]
+            
+            # 快速模式：关闭公式/表格识别
+            if settings.MINERU_FAST_MODE or os.environ.get("MINERU_FAST_MODE", "").lower() == "true":
+                cmd.extend(["--formula", "false", "--table", "false"])
+                logger.info("MinerU 快速模式：关闭公式/表格识别")
             
             logger.info(f"运行 MinerU: {' '.join(cmd)}")
             
-            # 设置环境变量，确保使用镜像
+            # 设置环境变量
             env = os.environ.copy()
             env["HF_ENDPOINT"] = env.get("HF_ENDPOINT", "https://hf-mirror.com")
+            
+            # 指定使用的 GPU（从配置读取，默认使用第一张）
+            if "CUDA_VISIBLE_DEVICES" not in env:
+                env["CUDA_VISIBLE_DEVICES"] = settings.MINERU_GPU_ID
             
             process = await asyncio.create_subprocess_exec(
                 *cmd,
