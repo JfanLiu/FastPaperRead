@@ -134,8 +134,8 @@ class PaperCRUD:
         paper_id: str,
         metadata: dict
     ) -> Optional[PaperModel]:
-        """更新论文元数据"""
-        return self.update(db, paper_id, metadata=metadata)
+        """更新论文扩展数据"""
+        return self.update(db, paper_id, extra_data=metadata)
     
     def get_stats(self, db: Session) -> dict:
         """获取统计信息"""

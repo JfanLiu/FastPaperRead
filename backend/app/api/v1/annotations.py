@@ -62,8 +62,8 @@ async def get_annotations(
     if not paper:
         raise HTTPException(status_code=404, detail="论文不存在")
     
-    # 从 paper.metadata 中获取批注
-    metadata = paper.metadata or {}
+    # 从 paper.extra_data 中获取批注
+    metadata = paper.extra_data or {}
     annotations = metadata.get("annotations", [])
     
     return {
@@ -100,7 +100,7 @@ async def create_annotation(
     }
     
     # 添加到 metadata
-    metadata = paper.metadata or {}
+    metadata = paper.extra_data or {}
     annotations = metadata.get("annotations", [])
     annotations.append(annotation)
     metadata["annotations"] = annotations
@@ -127,7 +127,7 @@ async def update_annotation(
     if not paper:
         raise HTTPException(status_code=404, detail="论文不存在")
     
-    metadata = paper.metadata or {}
+    metadata = paper.extra_data or {}
     annotations = metadata.get("annotations", [])
     
     # 查找并更新
@@ -166,7 +166,7 @@ async def delete_annotation(
     if not paper:
         raise HTTPException(status_code=404, detail="论文不存在")
     
-    metadata = paper.metadata or {}
+    metadata = paper.extra_data or {}
     annotations = metadata.get("annotations", [])
     
     # 过滤掉要删除的批注
@@ -196,7 +196,7 @@ async def clear_annotations(
     if not paper:
         raise HTTPException(status_code=404, detail="论文不存在")
     
-    metadata = paper.metadata or {}
+    metadata = paper.extra_data or {}
     annotations = metadata.get("annotations", [])
     
     if page is not None:

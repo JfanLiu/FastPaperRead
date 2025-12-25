@@ -71,7 +71,7 @@ class PaperModel(Base):
     read_progress = Column(Float, default=0.0)
     
     # 扩展元数据（用于存储批注、方法流程缓存等）
-    metadata = Column(JSON, default=dict)
+    extra_data = Column(JSON, default=dict)
     
     # 时间戳
     created_at = Column(DateTime, default=datetime.utcnow)
