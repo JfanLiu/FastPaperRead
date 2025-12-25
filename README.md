@@ -83,6 +83,22 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
+### 3.1 配置 MinerU（可选，推荐）
+
+MinerU 提供高质量的 PDF 解析，能准确识别章节、公式、图表等结构：
+
+```bash
+# 运行安装脚本
+chmod +x scripts/setup_mineru.sh
+./scripts/setup_mineru.sh
+
+# 或手动安装
+pip install mineru
+mineru-models-download
+```
+
+> 📖 详细配置指南：[docs/MinerU配置指南.md](docs/MinerU配置指南.md)
+
 ### 4. 启动前端
 ```bash
 cd frontend
@@ -151,7 +167,7 @@ FastPaperRead/
 - **FastAPI** - 高性能 Python Web 框架
 - **SQLAlchemy** - ORM 数据库操作
 - **OpenAI SDK** - LLM 集成 (兼容 DeepSeek/Qwen)
-- **MinerU** - PDF 解析 (可选)
+- **MinerU** - 高质量 PDF 解析（推荐）/ PyMuPDF（备用）
 
 ### 前端
 - **Next.js 14** - React 全栈框架
