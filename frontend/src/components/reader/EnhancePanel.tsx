@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { Button, Badge } from '@/components/common';
-import { enhanceApi } from '@/lib/api';
+import { enhanceApi, getStaticUrl } from '@/lib/api';
 import type { Anchor } from '@/types';
 import {
   Sparkles,
@@ -436,7 +436,7 @@ export function EnhancePanel({
               <span className="text-xs font-medium text-gray-500 block mb-2">图片预览</span>
               <div className="border border-gray-200 rounded-lg overflow-hidden">
                 <img
-                  src={anchor.image_path}
+                  src={getStaticUrl(anchor.image_path)}
                   alt={anchor.caption || 'Figure'}
                   className="w-full h-auto"
                 />

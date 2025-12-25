@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { MainLayout } from '@/components/layout';
 import { Button, Badge, Progress } from '@/components/common';
 import { usePaperStore } from '@/stores/paperStore';
-import { paperApi, skimApi, anchorApi } from '@/lib/api';
+import { paperApi, skimApi, anchorApi, getStaticUrl } from '@/lib/api';
 import { getEvidenceStrengthColor, formatDate } from '@/lib/utils';
 import {
   ArrowLeft,
@@ -289,7 +289,7 @@ export default function OverviewPage({ params }: PageProps) {
                   <div className="aspect-video bg-gray-100 rounded flex items-center justify-center mb-2">
                     {fig.image_path ? (
                       <img
-                        src={fig.image_path}
+                        src={getStaticUrl(fig.image_path)}
                         alt={fig.caption || ''}
                         className="max-h-full max-w-full object-contain"
                       />

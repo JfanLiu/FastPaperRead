@@ -17,10 +17,19 @@ import { apiLogger } from './logger';
 
 // API基础配置
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+const BACKEND_BASE_URL = API_BASE_URL.replace('/api/v1', '');
 
 // 导出用于构建资源URL的辅助函数
 export const getApiUrl = (path: string) => `${API_BASE_URL}${path}`;
 export const getPdfUrl = (paperId: string) => `${API_BASE_URL}/papers/${paperId}/pdf`;
+// 获取静态资源URL（图片等）
+export const getStaticUrl = (path: string) => {
+  if (!path) return '';
+  // 如果已经是完整URL，直接返回
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  // 拼接后端基础URL
+  return `${BACKEND_BASE_URL}${path}`;
+};
 
 const api = axios.create({
   baseURL: API_BASE_URL,
