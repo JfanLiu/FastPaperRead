@@ -308,3 +308,4 @@ export CUDA_VISIBLE_DEVICES=0
 - [ ] FastPaperRead 后端日志显示 "MinerU (mineru) 已安装"
 - [ ] 上传 PDF 后能看到完整的章节结构
 
+

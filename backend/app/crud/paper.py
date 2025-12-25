@@ -128,6 +128,15 @@ class PaperCRUD:
             kwargs["current_section"] = current_section
         return self.update(db, paper_id, **kwargs)
     
+    def update_metadata(
+        self,
+        db: Session,
+        paper_id: str,
+        metadata: dict
+    ) -> Optional[PaperModel]:
+        """更新论文元数据"""
+        return self.update(db, paper_id, metadata=metadata)
+    
     def get_stats(self, db: Session) -> dict:
         """获取统计信息"""
         total = db.query(PaperModel).count()

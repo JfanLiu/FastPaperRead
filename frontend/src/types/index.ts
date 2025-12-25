@@ -170,6 +170,62 @@ export interface MissingDetails {
   overall_assessment: string;
 }
 
+// ============ 方法流程提取 ============
+
+export interface MethodFlowStep {
+  step: number;
+  name: string;
+  description: string;
+  inputs: string[];
+  outputs: string[];
+}
+
+export interface MethodFlowResult {
+  method_name: string;
+  overview: string;
+  steps: MethodFlowStep[];
+  key_innovations: string[];
+  dependencies: string[];
+  pseudocode?: string;
+}
+
+// ============ 实验设置提取 ============
+
+export interface DatasetInfo {
+  name: string;
+  description: string;
+  size: string;
+  split: string;
+}
+
+export interface MetricInfo {
+  name: string;
+  description: string;
+}
+
+export interface HyperparameterInfo {
+  name: string;
+  value: string;
+  description: string;
+}
+
+export interface TrainingDetails {
+  optimizer: string;
+  learning_rate: string;
+  batch_size: string;
+  epochs: string;
+  hardware: string;
+}
+
+export interface ExperimentSetupResult {
+  datasets: DatasetInfo[];
+  baselines: string[];
+  metrics: MetricInfo[];
+  hyperparameters: HyperparameterInfo[];
+  training_details: TrainingDetails;
+  reproducibility_notes: string;
+}
+
 // ============ 复现清单 ============
 
 export interface ChecklistItem {

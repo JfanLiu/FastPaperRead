@@ -219,3 +219,71 @@ REVIEW_DRAFT_PROMPT = """你是一个学术审稿人。请为以下论文撰写�
 
 ## 结论
 [Accept/Minor Revision/Major Revision/Reject] - [理由]"""
+
+
+METHOD_FLOW_PROMPT = """你是一个方法流程分析专家。请从以下论文内容中提取方法流程。
+
+论文内容：
+{content}
+
+请按以下JSON格式输出：
+{{
+  "method_name": "方法名称",
+  "overview": "方法概述（1-2句话）",
+  "steps": [
+    {{
+      "step": 1,
+      "name": "步骤名称",
+      "description": "详细描述",
+      "inputs": ["输入1", "输入2"],
+      "outputs": ["输出1", "输出2"]
+    }}
+  ],
+  "key_innovations": ["创新点1", "创新点2"],
+  "dependencies": ["依赖的技术/工具1", "依赖的技术/工具2"],
+  "pseudocode": "伪代码（如果适用）"
+}}
+
+只输出JSON，不要其他内容。"""
+
+
+EXPERIMENT_SETUP_PROMPT = """你是一个实验设置分析专家。请从以下论文内容中提取实验设置信息。
+
+论文内容：
+{content}
+
+请按以下JSON格式输出：
+{{
+  "datasets": [
+    {{
+      "name": "数据集名称",
+      "description": "描述",
+      "size": "数据规模",
+      "split": "训练/验证/测试划分"
+    }}
+  ],
+  "baselines": ["对比方法1", "对比方法2"],
+  "metrics": [
+    {{
+      "name": "指标名称",
+      "description": "指标描述"
+    }}
+  ],
+  "hyperparameters": [
+    {{
+      "name": "参数名",
+      "value": "参数值",
+      "description": "说明"
+    }}
+  ],
+  "training_details": {{
+    "optimizer": "优化器",
+    "learning_rate": "学习率",
+    "batch_size": "批次大小",
+    "epochs": "训练轮数",
+    "hardware": "硬件配置"
+  }},
+  "reproducibility_notes": "复现注意事项"
+}}
+
+只输出JSON，不要其他内容。"""

@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
-import type { Anchor } from '@/types';
+import type { Anchor, MethodFlowResult, ExperimentSetupResult } from '@/types';
+import { enhanceApi } from '@/lib/api';
 import {
   ChevronDown,
   ChevronRight,
@@ -15,10 +16,15 @@ import {
   ArrowRight,
   Sparkles,
   ListChecks,
+  Loader2,
+  X,
+  GitBranch,
+  FlaskConical,
 } from 'lucide-react';
 
 interface StructuredViewProps {
   anchors: Anchor[];
+  paperId?: string;
   currentRoute?: string[];
   completedSections?: Set<string>;
   onSectionClick?: (anchor: Anchor) => void;
@@ -36,6 +42,7 @@ interface SectionNode {
 
 export function StructuredView({
   anchors,
+  paperId,
   currentRoute = [],
   completedSections = new Set(),
   onSectionClick,
@@ -45,6 +52,44 @@ export function StructuredView({
 }: StructuredViewProps) {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['root']));
   const [hoveredSection, setHoveredSection] = useState<string | null>(null);
+  
+  // 快速提取状态
+  const [methodFlowLoading, setMethodFlowLoading] = useState(false);
+  const [experimentSetupLoading, setExperimentSetupLoading] = useState(false);
+  const [methodFlowResult, setMethodFlowResult] = useState<MethodFlowResult | null>(null);
+  const [experimentSetupResult, setExperimentSetupResult] = useState<ExperimentSetupResult | null>(null);
+  const [showMethodFlowModal, setShowMethodFlowModal] = useState(false);
+  const [showExperimentSetupModal, setShowExperimentSetupModal] = useState(false);
+  
+  // 提取方法流程
+  const handleExtractMethodFlow = async () => {
+    if (!paperId) return;
+    setMethodFlowLoading(true);
+    try {
+      const response = await enhanceApi.extractMethodFlow(paperId);
+      setMethodFlowResult(response.method_flow);
+      setShowMethodFlowModal(true);
+    } catch (error) {
+      console.error('提取方法流程失败:', error);
+    } finally {
+      setMethodFlowLoading(false);
+    }
+  };
+  
+  // 提取实验设置
+  const handleExtractExperimentSetup = async () => {
+    if (!paperId) return;
+    setExperimentSetupLoading(true);
+    try {
+      const response = await enhanceApi.extractExperimentSetup(paperId);
+      setExperimentSetupResult(response.experiment_setup);
+      setShowExperimentSetupModal(true);
+    } catch (error) {
+      console.error('提取实验设置失败:', error);
+    } finally {
+      setExperimentSetupLoading(false);
+    }
+  };
 
   // 构建章节树
   const sectionAnchors = anchors.filter(a => a.type === 'section');
@@ -242,7 +287,7 @@ export function StructuredView({
         )}
       </div>
 
-      {/* Method/Experiment blocks placeholder */}
+      {/* Method/Experiment blocks */}
       <div className="border-t border-gray-200 p-3">
         <div className="p-3 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg">
           <div className="flex items-center gap-2 mb-2">
@@ -250,17 +295,263 @@ export function StructuredView({
             <span className="text-sm font-medium text-indigo-900">快速提取</span>
           </div>
           <div className="flex gap-2">
-            <button className="flex-1 px-3 py-2 text-xs font-medium text-indigo-700 bg-white border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors">
-              <ArrowRight className="w-3.5 h-3.5 inline mr-1" />
+            <button 
+              onClick={handleExtractMethodFlow}
+              disabled={methodFlowLoading || !paperId}
+              className="flex-1 px-3 py-2 text-xs font-medium text-indigo-700 bg-white border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {methodFlowLoading ? (
+                <Loader2 className="w-3.5 h-3.5 inline mr-1 animate-spin" />
+              ) : (
+                <GitBranch className="w-3.5 h-3.5 inline mr-1" />
+              )}
               方法流程
             </button>
-            <button className="flex-1 px-3 py-2 text-xs font-medium text-indigo-700 bg-white border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors">
-              <ArrowRight className="w-3.5 h-3.5 inline mr-1" />
+            <button 
+              onClick={handleExtractExperimentSetup}
+              disabled={experimentSetupLoading || !paperId}
+              className="flex-1 px-3 py-2 text-xs font-medium text-indigo-700 bg-white border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {experimentSetupLoading ? (
+                <Loader2 className="w-3.5 h-3.5 inline mr-1 animate-spin" />
+              ) : (
+                <FlaskConical className="w-3.5 h-3.5 inline mr-1" />
+              )}
               实验设置
             </button>
           </div>
         </div>
       </div>
+      
+      {/* Method Flow Modal */}
+      {showMethodFlowModal && methodFlowResult && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <div className="flex items-center gap-2">
+                <GitBranch className="w-5 h-5 text-indigo-600" />
+                <h3 className="text-lg font-semibold text-gray-900">方法流程</h3>
+              </div>
+              <button
+                onClick={() => setShowMethodFlowModal(false)}
+                className="p-1 text-gray-400 hover:text-gray-600 rounded"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto max-h-[calc(80vh-80px)]">
+              <div className="space-y-6">
+                {/* Method name & overview */}
+                <div>
+                  <h4 className="text-xl font-bold text-gray-900 mb-2">{methodFlowResult.method_name}</h4>
+                  <p className="text-gray-600">{methodFlowResult.overview}</p>
+                </div>
+                
+                {/* Steps */}
+                <div>
+                  <h5 className="text-sm font-semibold text-gray-700 mb-3">方法步骤</h5>
+                  <div className="space-y-3">
+                    {methodFlowResult.steps?.map((step, index) => (
+                      <div key={index} className="bg-gray-50 rounded-lg p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center">
+                            {step.step}
+                          </span>
+                          <span className="font-medium text-gray-900">{step.name}</span>
+                        </div>
+                        <p className="text-sm text-gray-600 mb-2">{step.description}</p>
+                        {step.inputs?.length > 0 && (
+                          <div className="text-xs text-gray-500">
+                            <span className="font-medium">输入: </span>{step.inputs.join(', ')}
+                          </div>
+                        )}
+                        {step.outputs?.length > 0 && (
+                          <div className="text-xs text-gray-500">
+                            <span className="font-medium">输出: </span>{step.outputs.join(', ')}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                
+                {/* Innovations */}
+                {methodFlowResult.key_innovations?.length > 0 && (
+                  <div>
+                    <h5 className="text-sm font-semibold text-gray-700 mb-2">关键创新</h5>
+                    <ul className="list-disc list-inside text-sm text-gray-600 space-y-1">
+                      {methodFlowResult.key_innovations.map((item, index) => (
+                        <li key={index}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                
+                {/* Dependencies */}
+                {methodFlowResult.dependencies?.length > 0 && (
+                  <div>
+                    <h5 className="text-sm font-semibold text-gray-700 mb-2">依赖项</h5>
+                    <div className="flex flex-wrap gap-2">
+                      {methodFlowResult.dependencies.map((dep, index) => (
+                        <span key={index} className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded">
+                          {dep}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Pseudocode */}
+                {methodFlowResult.pseudocode && (
+                  <div>
+                    <h5 className="text-sm font-semibold text-gray-700 mb-2">伪代码</h5>
+                    <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg text-sm overflow-x-auto">
+                      {methodFlowResult.pseudocode}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Experiment Setup Modal */}
+      {showExperimentSetupModal && experimentSetupResult && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <div className="flex items-center gap-2">
+                <FlaskConical className="w-5 h-5 text-emerald-600" />
+                <h3 className="text-lg font-semibold text-gray-900">实验设置</h3>
+              </div>
+              <button
+                onClick={() => setShowExperimentSetupModal(false)}
+                className="p-1 text-gray-400 hover:text-gray-600 rounded"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto max-h-[calc(80vh-80px)]">
+              <div className="space-y-6">
+                {/* Datasets */}
+                {experimentSetupResult.datasets?.length > 0 && (
+                  <div>
+                    <h5 className="text-sm font-semibold text-gray-700 mb-3">数据集</h5>
+                    <div className="space-y-3">
+                      {experimentSetupResult.datasets.map((dataset, index) => (
+                        <div key={index} className="bg-emerald-50 rounded-lg p-4">
+                          <div className="font-medium text-gray-900 mb-1">{dataset.name}</div>
+                          <p className="text-sm text-gray-600 mb-2">{dataset.description}</p>
+                          <div className="flex gap-4 text-xs text-gray-500">
+                            <span><strong>规模:</strong> {dataset.size}</span>
+                            <span><strong>划分:</strong> {dataset.split}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Baselines */}
+                {experimentSetupResult.baselines?.length > 0 && (
+                  <div>
+                    <h5 className="text-sm font-semibold text-gray-700 mb-2">对比方法</h5>
+                    <div className="flex flex-wrap gap-2">
+                      {experimentSetupResult.baselines.map((baseline, index) => (
+                        <span key={index} className="px-2 py-1 bg-amber-100 text-amber-800 text-xs rounded">
+                          {baseline}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Metrics */}
+                {experimentSetupResult.metrics?.length > 0 && (
+                  <div>
+                    <h5 className="text-sm font-semibold text-gray-700 mb-2">评估指标</h5>
+                    <div className="grid grid-cols-2 gap-2">
+                      {experimentSetupResult.metrics.map((metric, index) => (
+                        <div key={index} className="bg-purple-50 rounded-lg p-3">
+                          <div className="font-medium text-purple-900 text-sm">{metric.name}</div>
+                          <div className="text-xs text-purple-700">{metric.description}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Hyperparameters */}
+                {experimentSetupResult.hyperparameters?.length > 0 && (
+                  <div>
+                    <h5 className="text-sm font-semibold text-gray-700 mb-2">超参数</h5>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left bg-gray-50">
+                            <th className="px-3 py-2 font-medium text-gray-700">参数名</th>
+                            <th className="px-3 py-2 font-medium text-gray-700">值</th>
+                            <th className="px-3 py-2 font-medium text-gray-700">说明</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {experimentSetupResult.hyperparameters.map((param, index) => (
+                            <tr key={index}>
+                              <td className="px-3 py-2 font-mono text-indigo-600">{param.name}</td>
+                              <td className="px-3 py-2 font-mono">{param.value}</td>
+                              <td className="px-3 py-2 text-gray-600">{param.description}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Training Details */}
+                {experimentSetupResult.training_details && (
+                  <div>
+                    <h5 className="text-sm font-semibold text-gray-700 mb-2">训练细节</h5>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        <div className="text-xs text-gray-500">优化器</div>
+                        <div className="font-medium">{experimentSetupResult.training_details.optimizer}</div>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        <div className="text-xs text-gray-500">学习率</div>
+                        <div className="font-medium">{experimentSetupResult.training_details.learning_rate}</div>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        <div className="text-xs text-gray-500">批次大小</div>
+                        <div className="font-medium">{experimentSetupResult.training_details.batch_size}</div>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        <div className="text-xs text-gray-500">训练轮数</div>
+                        <div className="font-medium">{experimentSetupResult.training_details.epochs}</div>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3 col-span-2">
+                        <div className="text-xs text-gray-500">硬件配置</div>
+                        <div className="font-medium">{experimentSetupResult.training_details.hardware}</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Reproducibility Notes */}
+                {experimentSetupResult.reproducibility_notes && (
+                  <div>
+                    <h5 className="text-sm font-semibold text-gray-700 mb-2">复现注意事项</h5>
+                    <p className="text-sm text-gray-600 bg-yellow-50 p-3 rounded-lg border border-yellow-200">
+                      {experimentSetupResult.reproducibility_notes}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

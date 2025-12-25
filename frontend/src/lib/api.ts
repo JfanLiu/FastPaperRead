@@ -12,6 +12,8 @@ import type {
   EnhanceRequest,
   EnhanceResponse,
   PaginatedResponse,
+  MethodFlowResult,
+  ExperimentSetupResult,
 } from '@/types';
 import { apiLogger } from './logger';
 
@@ -308,6 +310,18 @@ export const enhanceApi = {
       categories,
       full_scan: true,
     });
+    return res.data;
+  },
+
+  // 提取方法流程
+  extractMethodFlow: async (paperId: string): Promise<{ method_flow: MethodFlowResult; cached: boolean }> => {
+    const res = await api.post(`/enhance/method-flow/${paperId}`);
+    return res.data;
+  },
+
+  // 提取实验设置
+  extractExperimentSetup: async (paperId: string): Promise<{ experiment_setup: ExperimentSetupResult; cached: boolean }> => {
+    const res = await api.post(`/enhance/experiment-setup/${paperId}`);
     return res.data;
   },
 };

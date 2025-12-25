@@ -152,3 +152,21 @@ class ContentEnhancer:
             {"role": "user", "content": prompt}
         ])
         return response
+    
+    async def extract_method_flow(self, content: str) -> Dict:
+        """提取方法流程"""
+        prompt = prompts.METHOD_FLOW_PROMPT.format(content=content[:8000])
+        response = await self.llm.chat_completion([
+            {"role": "system", "content": "你是一个方法流程分析专家。"},
+            {"role": "user", "content": prompt}
+        ])
+        return self._parse_json_response(response)
+    
+    async def extract_experiment_setup(self, content: str) -> Dict:
+        """提取实验设置"""
+        prompt = prompts.EXPERIMENT_SETUP_PROMPT.format(content=content[:8000])
+        response = await self.llm.chat_completion([
+            {"role": "system", "content": "你是一个实验设置分析专家。"},
+            {"role": "user", "content": prompt}
+        ])
+        return self._parse_json_response(response)

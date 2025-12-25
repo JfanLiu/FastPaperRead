@@ -601,6 +601,7 @@ export default function ReadPage() {
             <div className="flex-1 bg-white overflow-hidden">
               <StructuredView
                 anchors={anchors}
+                paperId={paperId}
                 currentRoute={currentRoute}
                 completedSections={session?.completedSections || new Set()}
                 onSectionClick={handleAnchorClick}

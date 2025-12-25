@@ -169,3 +169,4 @@ echo "  3. 启动 FastPaperRead 后端查看日志确认 MinerU 已识别"
 echo ""
 echo "详细文档: docs/MinerU配置指南.md"
 
+

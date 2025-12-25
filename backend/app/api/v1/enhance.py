@@ -1,6 +1,7 @@
 """
 增强引擎API端点 - 完整实现
 """
+import os
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -10,15 +11,32 @@ from ...api.deps import get_db, get_enhancer
 from ...crud import paper_crud, anchor_crud
 from ...core.llm import ContentEnhancer
 from ...schemas.enhance import EnhanceRequest, EnhanceResponse
+from ...config import settings
 
 router = APIRouter()
+
+
+def get_paper_content(paper) -> str:
+    """获取论文完整内容，优先从markdown文件读取"""
+    # 尝试从markdown文件读取
+    if paper.markdown_path:
+        md_path = os.path.join(settings.OUTPUT_DIR, paper.markdown_path)
+        if os.path.exists(md_path):
+            try:
+                with open(md_path, 'r', encoding='utf-8') as f:
+                    return f.read()
+            except Exception:
+                pass
+    
+    # 回退到abstract
+    return paper.abstract or ""
 
 
 class UnifiedEnhanceRequest(BaseModel):
     """统一增强请求"""
     paper_id: Optional[str] = None
     anchor_id: Optional[str] = None
-    enhance_type: str  # term, figure, equation, paragraph, missing_detail
+    enhance_type: str  # term, figure, equation, paragraph, missing_detail, method_flow, experiment_setup
     selected_text: Optional[str] = None
     level: Optional[str] = "plain"  # plain, strict
     use_cache: bool = True
@@ -111,6 +129,26 @@ async def enhance_content(
         elif request.enhance_type == "missing_detail":
             result = await enhancer.find_missing_details(context)
             response_key = "missing_details"
+        
+        elif request.enhance_type == "method_flow":
+            # 获取完整论文内容用于方法流程提取
+            full_content = context
+            if request.paper_id:
+                paper = paper_crud.get(db, request.paper_id)
+                if paper and paper.full_text:
+                    full_content = paper.full_text
+            result = await enhancer.extract_method_flow(full_content)
+            response_key = "method_flow"
+        
+        elif request.enhance_type == "experiment_setup":
+            # 获取完整论文内容用于实验设置提取
+            full_content = context
+            if request.paper_id:
+                paper = paper_crud.get(db, request.paper_id)
+                if paper and paper.full_text:
+                    full_content = paper.full_text
+            result = await enhancer.extract_experiment_setup(full_content)
+            response_key = "experiment_setup"
             
         else:
             raise HTTPException(status_code=400, detail=f"不支持的增强类型: {request.enhance_type}")
@@ -325,5 +363,73 @@ async def summarize_section(
     
     return {
         "summary": result,
+        "cached": False
+    }
+
+
+@router.post("/method-flow/{paper_id}", response_model=dict)
+async def extract_method_flow(
+    paper_id: str,
+    db: Session = Depends(get_db),
+    enhancer: ContentEnhancer = Depends(get_enhancer)
+):
+    """
+    提取方法流程
+    
+    - 从论文中提取方法的步骤流程
+    - 包括输入、输出、创新点等
+    """
+    paper = paper_crud.get(db, paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="论文不存在")
+    
+    # 获取论文内容 (优先从markdown文件读取)
+    content = get_paper_content(paper)
+    
+    if not content:
+        raise HTTPException(status_code=400, detail="论文内容不足，请确保论文已解析完成")
+    
+    # 调用LLM
+    try:
+        result = await enhancer.extract_method_flow(content)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"提取失败: {str(e)}")
+    
+    return {
+        "method_flow": result,
+        "cached": False
+    }
+
+
+@router.post("/experiment-setup/{paper_id}", response_model=dict)
+async def extract_experiment_setup(
+    paper_id: str,
+    db: Session = Depends(get_db),
+    enhancer: ContentEnhancer = Depends(get_enhancer)
+):
+    """
+    提取实验设置
+    
+    - 从论文中提取实验设置信息
+    - 包括数据集、基线、指标、超参数等
+    """
+    paper = paper_crud.get(db, paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="论文不存在")
+    
+    # 获取论文内容 (优先从markdown文件读取)
+    content = get_paper_content(paper)
+    
+    if not content:
+        raise HTTPException(status_code=400, detail="论文内容不足，请确保论文已解析完成")
+    
+    # 调用LLM
+    try:
+        result = await enhancer.extract_experiment_setup(content)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"提取失败: {str(e)}")
+    
+    return {
+        "experiment_setup": result,
         "cached": False
     }
