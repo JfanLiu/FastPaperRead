@@ -70,6 +70,9 @@ class PaperModel(Base):
     current_section = Column(String(200), nullable=True)
     read_progress = Column(Float, default=0.0)
     
+    # 扩展元数据（用于存储批注、方法流程缓存等）
+    metadata = Column(JSON, default=dict)
+    
     # 时间戳
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
