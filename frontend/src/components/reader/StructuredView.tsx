@@ -20,7 +20,17 @@ import {
   X,
   GitBranch,
   FlaskConical,
+  ChevronUp,
+  Copy,
+  Check,
 } from 'lucide-react';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 
 interface StructuredViewProps {
   anchors: Anchor[];
@@ -30,6 +40,7 @@ interface StructuredViewProps {
   onSectionClick?: (anchor: Anchor) => void;
   onMarkComplete?: (sectionId: string) => void;
   onExtractToChecklist?: (anchor: Anchor) => void;
+  onAddToChecklist?: (items: { group: string; text: string }[]) => void;
   className?: string;
 }
 
@@ -48,6 +59,7 @@ export function StructuredView({
   onSectionClick,
   onMarkComplete,
   onExtractToChecklist,
+  onAddToChecklist,
   className,
 }: StructuredViewProps) {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['root']));
@@ -58,17 +70,24 @@ export function StructuredView({
   const [experimentSetupLoading, setExperimentSetupLoading] = useState(false);
   const [methodFlowResult, setMethodFlowResult] = useState<MethodFlowResult | null>(null);
   const [experimentSetupResult, setExperimentSetupResult] = useState<ExperimentSetupResult | null>(null);
-  const [showMethodFlowModal, setShowMethodFlowModal] = useState(false);
-  const [showExperimentSetupModal, setShowExperimentSetupModal] = useState(false);
+  const [methodFlowExpanded, setMethodFlowExpanded] = useState(false);
+  const [experimentSetupExpanded, setExperimentSetupExpanded] = useState(false);
   
   // 提取方法流程
   const handleExtractMethodFlow = async () => {
     if (!paperId) return;
+    
+    if (methodFlowResult) {
+      // 如果已有结果，切换展开状态
+      setMethodFlowExpanded(!methodFlowExpanded);
+      return;
+    }
+    
     setMethodFlowLoading(true);
     try {
       const response = await enhanceApi.extractMethodFlow(paperId);
       setMethodFlowResult(response.method_flow);
-      setShowMethodFlowModal(true);
+      setMethodFlowExpanded(true);
     } catch (error) {
       console.error('提取方法流程失败:', error);
     } finally {
@@ -79,16 +98,82 @@ export function StructuredView({
   // 提取实验设置
   const handleExtractExperimentSetup = async () => {
     if (!paperId) return;
+    
+    if (experimentSetupResult) {
+      // 如果已有结果，切换展开状态
+      setExperimentSetupExpanded(!experimentSetupExpanded);
+      return;
+    }
+    
     setExperimentSetupLoading(true);
     try {
       const response = await enhanceApi.extractExperimentSetup(paperId);
       setExperimentSetupResult(response.experiment_setup);
-      setShowExperimentSetupModal(true);
+      setExperimentSetupExpanded(true);
     } catch (error) {
       console.error('提取实验设置失败:', error);
     } finally {
       setExperimentSetupLoading(false);
     }
+  };
+
+  // 提取到清单
+  const handleExtractMethodToChecklist = () => {
+    if (!methodFlowResult || !onAddToChecklist) return;
+    
+    const items: { group: string; text: string }[] = [];
+    
+    // 方法步骤
+    methodFlowResult.steps?.forEach((step) => {
+      items.push({
+        group: 'model',
+        text: `步骤 ${step.step}: ${step.name} - ${step.description}`
+      });
+    });
+    
+    // 依赖项
+    methodFlowResult.dependencies?.forEach((dep) => {
+      items.push({
+        group: 'code',
+        text: `依赖: ${dep}`
+      });
+    });
+    
+    onAddToChecklist(items);
+  };
+
+  const handleExtractExperimentToChecklist = () => {
+    if (!experimentSetupResult || !onAddToChecklist) return;
+    
+    const items: { group: string; text: string }[] = [];
+    
+    // 数据集
+    experimentSetupResult.datasets?.forEach((ds) => {
+      items.push({
+        group: 'data',
+        text: `数据集: ${ds.name} - ${ds.description}`
+      });
+    });
+    
+    // 超参数
+    experimentSetupResult.hyperparameters?.forEach((hp) => {
+      items.push({
+        group: 'training',
+        text: `${hp.name}: ${hp.value}`
+      });
+    });
+    
+    // 训练细节
+    if (experimentSetupResult.training_details) {
+      const td = experimentSetupResult.training_details;
+      if (td.optimizer) items.push({ group: 'training', text: `优化器: ${td.optimizer}` });
+      if (td.learning_rate) items.push({ group: 'training', text: `学习率: ${td.learning_rate}` });
+      if (td.batch_size) items.push({ group: 'training', text: `批次大小: ${td.batch_size}` });
+      if (td.epochs) items.push({ group: 'training', text: `训练轮数: ${td.epochs}` });
+      if (td.hardware) items.push({ group: 'code', text: `硬件: ${td.hardware}` });
+    }
+    
+    onAddToChecklist(items);
   };
 
   // 构建章节树
@@ -288,7 +373,7 @@ export function StructuredView({
       </div>
 
       {/* Method/Experiment blocks */}
-      <div className="border-t border-gray-200 p-3">
+      <div className="border-t border-gray-200 p-3 space-y-2">
         <div className="p-3 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg">
           <div className="flex items-center gap-2 mb-2">
             <Sparkles className="w-4 h-4 text-indigo-600" />
@@ -298,7 +383,12 @@ export function StructuredView({
             <button 
               onClick={handleExtractMethodFlow}
               disabled={methodFlowLoading || !paperId}
-              className="flex-1 px-3 py-2 text-xs font-medium text-indigo-700 bg-white border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className={cn(
+                "flex-1 px-3 py-2 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
+                methodFlowResult
+                  ? "text-white bg-indigo-600 hover:bg-indigo-700"
+                  : "text-indigo-700 bg-white border border-indigo-200 hover:bg-indigo-50"
+              )}
             >
               {methodFlowLoading ? (
                 <Loader2 className="w-3.5 h-3.5 inline mr-1 animate-spin" />
@@ -306,11 +396,23 @@ export function StructuredView({
                 <GitBranch className="w-3.5 h-3.5 inline mr-1" />
               )}
               方法流程
+              {methodFlowResult && (
+                methodFlowExpanded ? (
+                  <ChevronUp className="w-3.5 h-3.5 inline ml-1" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5 inline ml-1" />
+                )
+              )}
             </button>
             <button 
               onClick={handleExtractExperimentSetup}
               disabled={experimentSetupLoading || !paperId}
-              className="flex-1 px-3 py-2 text-xs font-medium text-indigo-700 bg-white border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className={cn(
+                "flex-1 px-3 py-2 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
+                experimentSetupResult
+                  ? "text-white bg-emerald-600 hover:bg-emerald-700"
+                  : "text-indigo-700 bg-white border border-indigo-200 hover:bg-indigo-50"
+              )}
             >
               {experimentSetupLoading ? (
                 <Loader2 className="w-3.5 h-3.5 inline mr-1 animate-spin" />
@@ -318,241 +420,326 @@ export function StructuredView({
                 <FlaskConical className="w-3.5 h-3.5 inline mr-1" />
               )}
               实验设置
+              {experimentSetupResult && (
+                experimentSetupExpanded ? (
+                  <ChevronUp className="w-3.5 h-3.5 inline ml-1" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5 inline ml-1" />
+                )
+              )}
             </button>
           </div>
         </div>
+        
+        {/* 内嵌方法流程块 */}
+        {methodFlowExpanded && methodFlowResult && (
+          <MethodFlowBlock 
+            result={methodFlowResult} 
+            onExtractToChecklist={handleExtractMethodToChecklist}
+            onClose={() => setMethodFlowExpanded(false)}
+          />
+        )}
+        
+        {/* 内嵌实验设置块 */}
+        {experimentSetupExpanded && experimentSetupResult && (
+          <ExperimentSetupBlock 
+            result={experimentSetupResult}
+            onExtractToChecklist={handleExtractExperimentToChecklist}
+            onClose={() => setExperimentSetupExpanded(false)}
+          />
+        )}
       </div>
-      
-      {/* Method Flow Modal */}
-      {showMethodFlowModal && methodFlowResult && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-              <div className="flex items-center gap-2">
-                <GitBranch className="w-5 h-5 text-indigo-600" />
-                <h3 className="text-lg font-semibold text-gray-900">方法流程</h3>
-              </div>
-              <button
-                onClick={() => setShowMethodFlowModal(false)}
-                className="p-1 text-gray-400 hover:text-gray-600 rounded"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-6 overflow-y-auto max-h-[calc(80vh-80px)]">
-              <div className="space-y-6">
-                {/* Method name & overview */}
-                <div>
-                  <h4 className="text-xl font-bold text-gray-900 mb-2">{methodFlowResult.method_name}</h4>
-                  <p className="text-gray-600">{methodFlowResult.overview}</p>
-                </div>
-                
-                {/* Steps */}
-                <div>
-                  <h5 className="text-sm font-semibold text-gray-700 mb-3">方法步骤</h5>
-                  <div className="space-y-3">
-                    {methodFlowResult.steps?.map((step, index) => (
-                      <div key={index} className="bg-gray-50 rounded-lg p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center">
-                            {step.step}
-                          </span>
-                          <span className="font-medium text-gray-900">{step.name}</span>
-                        </div>
-                        <p className="text-sm text-gray-600 mb-2">{step.description}</p>
-                        {step.inputs?.length > 0 && (
-                          <div className="text-xs text-gray-500">
-                            <span className="font-medium">输入: </span>{step.inputs.join(', ')}
-                          </div>
-                        )}
-                        {step.outputs?.length > 0 && (
-                          <div className="text-xs text-gray-500">
-                            <span className="font-medium">输出: </span>{step.outputs.join(', ')}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                
-                {/* Innovations */}
-                {methodFlowResult.key_innovations?.length > 0 && (
-                  <div>
-                    <h5 className="text-sm font-semibold text-gray-700 mb-2">关键创新</h5>
-                    <ul className="list-disc list-inside text-sm text-gray-600 space-y-1">
-                      {methodFlowResult.key_innovations.map((item, index) => (
-                        <li key={index}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                
-                {/* Dependencies */}
-                {methodFlowResult.dependencies?.length > 0 && (
-                  <div>
-                    <h5 className="text-sm font-semibold text-gray-700 mb-2">依赖项</h5>
-                    <div className="flex flex-wrap gap-2">
-                      {methodFlowResult.dependencies.map((dep, index) => (
-                        <span key={index} className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded">
-                          {dep}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                
-                {/* Pseudocode */}
-                {methodFlowResult.pseudocode && (
-                  <div>
-                    <h5 className="text-sm font-semibold text-gray-700 mb-2">伪代码</h5>
-                    <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg text-sm overflow-x-auto">
-                      {methodFlowResult.pseudocode}
-                    </pre>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      {/* Experiment Setup Modal */}
-      {showExperimentSetupModal && experimentSetupResult && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-              <div className="flex items-center gap-2">
-                <FlaskConical className="w-5 h-5 text-emerald-600" />
-                <h3 className="text-lg font-semibold text-gray-900">实验设置</h3>
-              </div>
-              <button
-                onClick={() => setShowExperimentSetupModal(false)}
-                className="p-1 text-gray-400 hover:text-gray-600 rounded"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-6 overflow-y-auto max-h-[calc(80vh-80px)]">
-              <div className="space-y-6">
-                {/* Datasets */}
-                {experimentSetupResult.datasets?.length > 0 && (
-                  <div>
-                    <h5 className="text-sm font-semibold text-gray-700 mb-3">数据集</h5>
-                    <div className="space-y-3">
-                      {experimentSetupResult.datasets.map((dataset, index) => (
-                        <div key={index} className="bg-emerald-50 rounded-lg p-4">
-                          <div className="font-medium text-gray-900 mb-1">{dataset.name}</div>
-                          <p className="text-sm text-gray-600 mb-2">{dataset.description}</p>
-                          <div className="flex gap-4 text-xs text-gray-500">
-                            <span><strong>规模:</strong> {dataset.size}</span>
-                            <span><strong>划分:</strong> {dataset.split}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                
-                {/* Baselines */}
-                {experimentSetupResult.baselines?.length > 0 && (
-                  <div>
-                    <h5 className="text-sm font-semibold text-gray-700 mb-2">对比方法</h5>
-                    <div className="flex flex-wrap gap-2">
-                      {experimentSetupResult.baselines.map((baseline, index) => (
-                        <span key={index} className="px-2 py-1 bg-amber-100 text-amber-800 text-xs rounded">
-                          {baseline}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                
-                {/* Metrics */}
-                {experimentSetupResult.metrics?.length > 0 && (
-                  <div>
-                    <h5 className="text-sm font-semibold text-gray-700 mb-2">评估指标</h5>
-                    <div className="grid grid-cols-2 gap-2">
-                      {experimentSetupResult.metrics.map((metric, index) => (
-                        <div key={index} className="bg-purple-50 rounded-lg p-3">
-                          <div className="font-medium text-purple-900 text-sm">{metric.name}</div>
-                          <div className="text-xs text-purple-700">{metric.description}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                
-                {/* Hyperparameters */}
-                {experimentSetupResult.hyperparameters?.length > 0 && (
-                  <div>
-                    <h5 className="text-sm font-semibold text-gray-700 mb-2">超参数</h5>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="text-left bg-gray-50">
-                            <th className="px-3 py-2 font-medium text-gray-700">参数名</th>
-                            <th className="px-3 py-2 font-medium text-gray-700">值</th>
-                            <th className="px-3 py-2 font-medium text-gray-700">说明</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {experimentSetupResult.hyperparameters.map((param, index) => (
-                            <tr key={index}>
-                              <td className="px-3 py-2 font-mono text-indigo-600">{param.name}</td>
-                              <td className="px-3 py-2 font-mono">{param.value}</td>
-                              <td className="px-3 py-2 text-gray-600">{param.description}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-                
-                {/* Training Details */}
-                {experimentSetupResult.training_details && (
-                  <div>
-                    <h5 className="text-sm font-semibold text-gray-700 mb-2">训练细节</h5>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-gray-50 rounded-lg p-3">
-                        <div className="text-xs text-gray-500">优化器</div>
-                        <div className="font-medium">{experimentSetupResult.training_details.optimizer}</div>
-                      </div>
-                      <div className="bg-gray-50 rounded-lg p-3">
-                        <div className="text-xs text-gray-500">学习率</div>
-                        <div className="font-medium">{experimentSetupResult.training_details.learning_rate}</div>
-                      </div>
-                      <div className="bg-gray-50 rounded-lg p-3">
-                        <div className="text-xs text-gray-500">批次大小</div>
-                        <div className="font-medium">{experimentSetupResult.training_details.batch_size}</div>
-                      </div>
-                      <div className="bg-gray-50 rounded-lg p-3">
-                        <div className="text-xs text-gray-500">训练轮数</div>
-                        <div className="font-medium">{experimentSetupResult.training_details.epochs}</div>
-                      </div>
-                      <div className="bg-gray-50 rounded-lg p-3 col-span-2">
-                        <div className="text-xs text-gray-500">硬件配置</div>
-                        <div className="font-medium">{experimentSetupResult.training_details.hardware}</div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
-                {/* Reproducibility Notes */}
-                {experimentSetupResult.reproducibility_notes && (
-                  <div>
-                    <h5 className="text-sm font-semibold text-gray-700 mb-2">复现注意事项</h5>
-                    <p className="text-sm text-gray-600 bg-yellow-50 p-3 rounded-lg border border-yellow-200">
-                      {experimentSetupResult.reproducibility_notes}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
+// 方法流程内嵌块组件
+interface MethodFlowBlockProps {
+  result: MethodFlowResult;
+  onExtractToChecklist?: () => void;
+  onClose: () => void;
+}
+
+function MethodFlowBlock({ result, onExtractToChecklist, onClose }: MethodFlowBlockProps) {
+  const [stepsExpanded, setStepsExpanded] = useState(true);
+  const [copied, setCopied] = useState(false);
+  
+  const handleCopy = () => {
+    const text = `方法: ${result.method_name}\n${result.overview}\n\n步骤:\n${
+      result.steps?.map(s => `${s.step}. ${s.name}: ${s.description}`).join('\n') || ''
+    }`;
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="bg-white border border-indigo-200 rounded-lg overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-2 bg-indigo-50 border-b border-indigo-100">
+        <div className="flex items-center gap-2">
+          <GitBranch className="w-4 h-4 text-indigo-600" />
+          <span className="text-sm font-medium text-indigo-900">{result.method_name || '方法流程'}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handleCopy}
+            className="p-1 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-100 rounded"
+            title="复制"
+          >
+            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+          </button>
+          <button
+            onClick={onClose}
+            className="p-1 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-100 rounded"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+      
+      {/* Content */}
+      <div className="p-3 space-y-3 max-h-[300px] overflow-y-auto">
+        {/* Overview */}
+        {result.overview && (
+          <p className="text-xs text-gray-600 leading-relaxed">{result.overview}</p>
+        )}
+        
+        {/* Steps */}
+        {result.steps && result.steps.length > 0 && (
+          <Collapsible open={stepsExpanded} onOpenChange={setStepsExpanded}>
+            <CollapsibleTrigger className="flex items-center gap-1 text-xs font-medium text-gray-700 hover:text-indigo-600">
+              {stepsExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+              方法步骤 ({result.steps.length})
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-2 space-y-2">
+              {result.steps.map((step, index) => (
+                <div key={index} className="flex gap-2 p-2 bg-gray-50 rounded text-xs">
+                  <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center flex-shrink-0 text-[10px]">
+                    {step.step}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-gray-800">{step.name}</div>
+                    <div className="text-gray-500 mt-0.5">{step.description}</div>
+                    {step.inputs && step.inputs.length > 0 && (
+                      <div className="text-gray-400 mt-1">
+                        <span className="font-medium">输入:</span> {step.inputs.join(', ')}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </CollapsibleContent>
+          </Collapsible>
+        )}
+        
+        {/* Innovations */}
+        {result.key_innovations && result.key_innovations.length > 0 && (
+          <div>
+            <div className="text-xs font-medium text-gray-700 mb-1">关键创新</div>
+            <ul className="list-disc list-inside text-xs text-gray-600 space-y-0.5">
+              {result.key_innovations.map((item, index) => (
+                <li key={index}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        
+        {/* Dependencies */}
+        {result.dependencies && result.dependencies.length > 0 && (
+          <div>
+            <div className="text-xs font-medium text-gray-700 mb-1">依赖项</div>
+            <div className="flex flex-wrap gap-1">
+              {result.dependencies.map((dep, index) => (
+                <Badge key={index} variant="outline" className="text-[10px] px-1.5 py-0">
+                  {dep}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+        
+        {/* Extract to checklist button */}
+        {onExtractToChecklist && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onExtractToChecklist}
+            className="w-full text-xs h-7"
+          >
+            <ListChecks className="w-3 h-3 mr-1" />
+            提取到复现清单
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// 实验设置内嵌块组件
+interface ExperimentSetupBlockProps {
+  result: ExperimentSetupResult;
+  onExtractToChecklist?: () => void;
+  onClose: () => void;
+}
+
+function ExperimentSetupBlock({ result, onExtractToChecklist, onClose }: ExperimentSetupBlockProps) {
+  const [datasetsExpanded, setDatasetsExpanded] = useState(true);
+  const [paramsExpanded, setParamsExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+  
+  const handleCopy = () => {
+    const text = `数据集: ${result.datasets?.map(d => d.name).join(', ') || ''}\n` +
+      `对比方法: ${result.baselines?.join(', ') || ''}\n` +
+      `评估指标: ${result.metrics?.map(m => m.name).join(', ') || ''}`;
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="bg-white border border-emerald-200 rounded-lg overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-2 bg-emerald-50 border-b border-emerald-100">
+        <div className="flex items-center gap-2">
+          <FlaskConical className="w-4 h-4 text-emerald-600" />
+          <span className="text-sm font-medium text-emerald-900">实验设置</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handleCopy}
+            className="p-1 text-emerald-500 hover:text-emerald-700 hover:bg-emerald-100 rounded"
+            title="复制"
+          >
+            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+          </button>
+          <button
+            onClick={onClose}
+            className="p-1 text-emerald-500 hover:text-emerald-700 hover:bg-emerald-100 rounded"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+      
+      {/* Content */}
+      <div className="p-3 space-y-3 max-h-[300px] overflow-y-auto">
+        {/* Datasets */}
+        {result.datasets && result.datasets.length > 0 && (
+          <Collapsible open={datasetsExpanded} onOpenChange={setDatasetsExpanded}>
+            <CollapsibleTrigger className="flex items-center gap-1 text-xs font-medium text-gray-700 hover:text-emerald-600">
+              {datasetsExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+              数据集 ({result.datasets.length})
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-2 space-y-2">
+              {result.datasets.map((ds, index) => (
+                <div key={index} className="p-2 bg-emerald-50 rounded text-xs">
+                  <div className="font-medium text-emerald-800">{ds.name}</div>
+                  <div className="text-gray-600 mt-0.5">{ds.description}</div>
+                  <div className="flex gap-3 mt-1 text-gray-500">
+                    {ds.size && <span>规模: {ds.size}</span>}
+                    {ds.split && <span>划分: {ds.split}</span>}
+                  </div>
+                </div>
+              ))}
+            </CollapsibleContent>
+          </Collapsible>
+        )}
+        
+        {/* Baselines */}
+        {result.baselines && result.baselines.length > 0 && (
+          <div>
+            <div className="text-xs font-medium text-gray-700 mb-1">对比方法</div>
+            <div className="flex flex-wrap gap-1">
+              {result.baselines.map((baseline, index) => (
+                <Badge key={index} className="text-[10px] px-1.5 py-0 bg-amber-100 text-amber-800 hover:bg-amber-200">
+                  {baseline}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+        
+        {/* Metrics */}
+        {result.metrics && result.metrics.length > 0 && (
+          <div>
+            <div className="text-xs font-medium text-gray-700 mb-1">评估指标</div>
+            <div className="flex flex-wrap gap-1">
+              {result.metrics.map((metric, index) => (
+                <Badge key={index} variant="outline" className="text-[10px] px-1.5 py-0 border-purple-200 text-purple-700">
+                  {metric.name}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+        
+        {/* Hyperparameters */}
+        {result.hyperparameters && result.hyperparameters.length > 0 && (
+          <Collapsible open={paramsExpanded} onOpenChange={setParamsExpanded}>
+            <CollapsibleTrigger className="flex items-center gap-1 text-xs font-medium text-gray-700 hover:text-emerald-600">
+              {paramsExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+              超参数 ({result.hyperparameters.length})
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-2">
+              <div className="grid grid-cols-2 gap-1 text-xs">
+                {result.hyperparameters.map((param, index) => (
+                  <div key={index} className="flex justify-between p-1.5 bg-gray-50 rounded">
+                    <span className="font-mono text-gray-600">{param.name}</span>
+                    <span className="font-mono text-indigo-600">{param.value}</span>
+                  </div>
+                ))}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+        )}
+        
+        {/* Training Details */}
+        {result.training_details && (
+          <div>
+            <div className="text-xs font-medium text-gray-700 mb-1">训练细节</div>
+            <div className="grid grid-cols-2 gap-1 text-xs">
+              {result.training_details.optimizer && (
+                <div className="p-1.5 bg-gray-50 rounded">
+                  <span className="text-gray-500">优化器:</span>{' '}
+                  <span className="font-medium">{result.training_details.optimizer}</span>
+                </div>
+              )}
+              {result.training_details.learning_rate && (
+                <div className="p-1.5 bg-gray-50 rounded">
+                  <span className="text-gray-500">学习率:</span>{' '}
+                  <span className="font-medium">{result.training_details.learning_rate}</span>
+                </div>
+              )}
+              {result.training_details.batch_size && (
+                <div className="p-1.5 bg-gray-50 rounded">
+                  <span className="text-gray-500">批次:</span>{' '}
+                  <span className="font-medium">{result.training_details.batch_size}</span>
+                </div>
+              )}
+              {result.training_details.epochs && (
+                <div className="p-1.5 bg-gray-50 rounded">
+                  <span className="text-gray-500">轮数:</span>{' '}
+                  <span className="font-medium">{result.training_details.epochs}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        
+        {/* Extract to checklist button */}
+        {onExtractToChecklist && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onExtractToChecklist}
+            className="w-full text-xs h-7"
+          >
+            <ListChecks className="w-3 h-3 mr-1" />
+            提取到复现清单
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}

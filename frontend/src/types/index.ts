@@ -326,3 +326,71 @@ export interface ApiError {
   detail: string;
   status_code?: number;
 }
+
+// ============ Evidence Ledger（主张-证据台账）============
+
+export interface Claim {
+  id: string;
+  text: string;
+  evidence_summary?: string;
+  evidence_anchors: string[];
+  evidence_type: 'experimental' | 'theoretical' | 'empirical' | 'citation';
+  strength: 'strong' | 'medium' | 'weak';
+  uncertainty: 'from_text' | 'inferred' | 'needs_verify';
+  alternative_explanations: string[];
+  risks: string[];
+  source_sections: string[];
+}
+
+export interface EvidenceLedger {
+  claims: Claim[];
+  overall_evidence_quality: 'strong' | 'medium' | 'weak';
+  key_assumptions: string[];
+  methodology_concerns: string[];
+}
+
+// ============ Chat（对话协作）============
+
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp?: string;
+  context_anchors: string[];
+}
+
+export type ChatMode = 'seminar' | 'writing' | 'reproduction' | 'design';
+
+export interface ChatHistory {
+  paper_id: string;
+  messages: ChatMessage[];
+  current_mode: ChatMode;
+}
+
+// ============ Quote Snippet（引用骨架）============
+
+export interface QuoteSnippet {
+  skeleton: string;
+  paraphrase: string;
+  key_points: string[];
+  citation_context: string;
+  writing_suggestions: string[];
+}
+
+// ============ Section Summary Leveled（三层摘要）============
+
+export interface SectionSummaryLeveled {
+  one_liner: string;
+  plain: string;
+  strict: string;
+}
+
+// ============ PaperCard Full（完整PaperCard）============
+
+export interface PaperCardFull {
+  one_line_summary: string;
+  contributions: string[];
+  limitations: string[];
+  applicable_scope: string;
+  repro_risk: string;
+  key_takeaways: string[];
+}

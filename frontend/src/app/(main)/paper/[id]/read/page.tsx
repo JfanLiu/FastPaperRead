@@ -13,6 +13,10 @@ import {
   ChecklistPanel,
   TimerWidget,
   ResumeBanner,
+  EvidenceLedger,
+  ChatPanel,
+  QuoteSnippetPanel,
+  PaperCardGenerator,
 } from '@/components/reader';
 import { Button, Badge, Progress } from '@/components/common';
 import { cn } from '@/lib/utils';
@@ -105,6 +109,13 @@ export default function ReadPage() {
   
   // 复现清单
   const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
+  
+  // 引用骨架
+  const [showQuoteSnippet, setShowQuoteSnippet] = useState(false);
+  const [quoteText, setQuoteText] = useState('');
+  
+  // PaperCard 生成器
+  const [showPaperCardGenerator, setShowPaperCardGenerator] = useState(false);
 
   // 加载数据
   useEffect(() => {
@@ -530,6 +541,16 @@ export default function ReadPage() {
             <Settings className="w-5 h-5" />
           </button>
 
+          {/* Generate PaperCard */}
+          <button 
+            onClick={() => setShowPaperCardGenerator(true)}
+            className="flex items-center gap-1 px-3 py-1.5 text-sm text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg"
+            title="生成 PaperCard"
+          >
+            <FileText className="w-4 h-4" />
+            生成卡片
+          </button>
+
           {/* Actions */}
           <button className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg">
             <Save className="w-5 h-5" />
@@ -598,7 +619,7 @@ export default function ReadPage() {
           )}
           
           {(viewMode === 'markdown' || viewMode === 'split') && (
-            <div className="flex-1 bg-white overflow-hidden">
+            <div className="flex-1 bg-white overflow-hidden flex flex-col">
               <StructuredView
                 anchors={anchors}
                 paperId={paperId}
@@ -616,7 +637,25 @@ export default function ReadPage() {
                   });
                   setRightPanelTab('checklist');
                 }}
-                className="h-full"
+                onAddToChecklist={(items) => {
+                  items.forEach(item => {
+                    handleAddToChecklist({
+                      group: item.group as 'data' | 'preprocess' | 'training' | 'eval' | 'env',
+                      text: item.text,
+                      missing: false,
+                      needs_verify: true,
+                    });
+                  });
+                  setRightPanelTab('checklist');
+                }}
+                className="flex-1"
+              />
+              <EvidenceLedger
+                paperId={paperId}
+                onAnchorClick={(anchorId) => {
+                  const anchor = anchors.find(a => a.id === anchorId);
+                  if (anchor) handleAnchorClick(anchor);
+                }}
               />
             </div>
           )}
@@ -659,6 +698,11 @@ export default function ReadPage() {
                 needs_verify: true,
               });
               setRightPanelTab('checklist');
+              setSelectionPosition(null);
+            }}
+            onQuote={(text) => {
+              setQuoteText(text);
+              setShowQuoteSnippet(true);
               setSelectionPosition(null);
             }}
             onClose={() => setSelectionPosition(null)}
@@ -711,6 +755,18 @@ export default function ReadPage() {
                 >
                   <ListChecks className="w-4 h-4" />
                   清单
+                </button>
+                <button
+                  onClick={() => setRightPanelTab('chat')}
+                  className={cn(
+                    'flex-1 flex items-center justify-center gap-1 py-3 text-sm font-medium transition-colors',
+                    rightPanelTab === 'chat'
+                      ? 'text-indigo-600 border-b-2 border-indigo-600'
+                      : 'text-gray-500 hover:text-gray-700'
+                  )}
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  Chat
                 </button>
                 <button
                   onClick={() => setRightPanelCollapsed(true)}
@@ -775,6 +831,31 @@ export default function ReadPage() {
                     onFindMissing={handleScanMissing}
                   />
                 )}
+                {rightPanelTab === 'chat' && (
+                  <ChatPanel
+                    paperId={paperId}
+                    selectedText={selectedText}
+                    selectedAnchorIds={selectedAnchor ? [selectedAnchor.id] : []}
+                    onAddToChecklist={(text) => {
+                      handleAddToChecklist({
+                        group: 'training',
+                        text,
+                        missing: false,
+                        needs_verify: true,
+                      });
+                      setRightPanelTab('checklist');
+                    }}
+                    onCreateCard={(content) => {
+                      handleCreateCard({
+                        type: 'note',
+                        title: content.slice(0, 50),
+                        content,
+                        source_anchor_ids: selectedAnchor ? [selectedAnchor.id] : [],
+                      });
+                      setRightPanelTab('notes');
+                    }}
+                  />
+                )}
               </div>
 
               {/* Timer widget */}
@@ -797,6 +878,36 @@ export default function ReadPage() {
           </button>
         )}
       </div>
+
+      {/* Quote Snippet Modal */}
+      {showQuoteSnippet && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] overflow-hidden">
+            <QuoteSnippetPanel
+              paperId={paperId}
+              selectedText={quoteText}
+              anchorId={selectedAnchor?.id}
+              onClose={() => setShowQuoteSnippet(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* PaperCard Generator Modal */}
+      {showPaperCardGenerator && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-xl max-h-[85vh] overflow-hidden">
+            <PaperCardGenerator
+              paperId={paperId}
+              onCardCreated={(card) => {
+                setCards(prev => [...prev, card]);
+                setShowPaperCardGenerator(false);
+              }}
+              onClose={() => setShowPaperCardGenerator(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -14,6 +14,14 @@ import type {
   PaginatedResponse,
   MethodFlowResult,
   ExperimentSetupResult,
+  EvidenceLedger,
+  Claim,
+  ChatMessage,
+  ChatMode,
+  ChatHistory,
+  QuoteSnippet,
+  SectionSummaryLeveled,
+  PaperCardFull,
 } from '@/types';
 import { apiLogger } from './logger';
 
@@ -475,6 +483,137 @@ export const reviewApi = {
   // 获取评分标准
   getRubric: async (paperId: string) => {
     const res = await api.get(`/review/${paperId}/rubric`);
+    return res.data;
+  },
+};
+
+// ============================================
+// Evidence Ledger API
+// ============================================
+
+export const evidenceLedgerApi = {
+  // 生成证据台账
+  generate: async (paperId: string, force: boolean = false): Promise<{ evidence_ledger: EvidenceLedger; cached: boolean }> => {
+    const res = await api.post(`/evidence-ledger/${paperId}/generate`, null, { params: { force } });
+    return res.data;
+  },
+
+  // 获取证据台账
+  get: async (paperId: string): Promise<{ evidence_ledger: EvidenceLedger | null }> => {
+    const res = await api.get(`/evidence-ledger/${paperId}`);
+    return res.data;
+  },
+
+  // 更新证据台账
+  update: async (paperId: string, data: EvidenceLedger): Promise<{ evidence_ledger: EvidenceLedger }> => {
+    const res = await api.put(`/evidence-ledger/${paperId}`, data);
+    return res.data;
+  },
+
+  // 更新单条主张
+  updateClaim: async (paperId: string, claimId: string, updates: Partial<Claim>): Promise<{ claim: Claim }> => {
+    const res = await api.put(`/evidence-ledger/${paperId}/claim`, { claim_id: claimId, ...updates });
+    return res.data;
+  },
+
+  // 添加主张
+  addClaim: async (paperId: string, text: string, evidenceAnchors: string[] = [], strength: string = 'medium'): Promise<{ claim: Claim }> => {
+    const res = await api.post(`/evidence-ledger/${paperId}/claim`, {
+      text,
+      evidence_anchors: evidenceAnchors,
+      strength
+    });
+    return res.data;
+  },
+
+  // 删除主张
+  deleteClaim: async (paperId: string, claimId: string): Promise<void> => {
+    await api.delete(`/evidence-ledger/${paperId}/claim/${claimId}`);
+  },
+
+  // 主张转卡片
+  claimToCard: async (paperId: string, claimId: string): Promise<{ card_data: Partial<Card> }> => {
+    const res = await api.post(`/evidence-ledger/${paperId}/to-card`, { claim_id: claimId });
+    return res.data;
+  },
+};
+
+// ============================================
+// Chat API
+// ============================================
+
+export const chatApi = {
+  // 发送消息
+  sendMessage: async (
+    paperId: string,
+    message: string,
+    mode: ChatMode = 'seminar',
+    context?: string,
+    contextAnchors: string[] = []
+  ): Promise<{ message: ChatMessage; mode: ChatMode }> => {
+    const res = await api.post(`/chat/${paperId}`, {
+      message,
+      mode,
+      context,
+      context_anchors: contextAnchors
+    });
+    return res.data;
+  },
+
+  // 获取聊天历史
+  getHistory: async (paperId: string, limit: number = 50): Promise<{ history: ChatHistory }> => {
+    const res = await api.get(`/chat/${paperId}/history`, { params: { limit } });
+    return res.data;
+  },
+
+  // 清空聊天历史
+  clearHistory: async (paperId: string): Promise<void> => {
+    await api.delete(`/chat/${paperId}/history`);
+  },
+
+  // 切换模式
+  switchMode: async (paperId: string, mode: ChatMode): Promise<{ mode: ChatMode; description: string }> => {
+    const res = await api.put(`/chat/${paperId}/mode`, null, { params: { mode } });
+    return res.data;
+  },
+};
+
+// ============================================
+// 扩展增强 API
+// ============================================
+
+export const enhanceApiExtended = {
+  // 生成引用骨架
+  generateQuoteSnippet: async (
+    paperId: string,
+    selectedText: string,
+    anchorId?: string
+  ): Promise<{ quote_snippet: QuoteSnippet }> => {
+    const res = await api.post('/enhance/quote-snippet', {
+      paper_id: paperId,
+      selected_text: selectedText,
+      anchor_id: anchorId
+    });
+    return res.data;
+  },
+
+  // 生成三层摘要
+  generateSectionSummaryLeveled: async (
+    sectionTitle: string,
+    content: string,
+    level: 'one_liner' | 'plain' | 'strict' = 'plain'
+  ): Promise<{ summary: string; level: string; all_levels: SectionSummaryLeveled }> => {
+    const res = await api.post('/enhance/section-summary-leveled', {
+      section_title: sectionTitle,
+      content,
+      level
+    });
+    return res.data;
+  },
+
+  // 生成完整 PaperCard
+  generatePaperCardFull: async (paperId: string): Promise<{ paper_card: PaperCardFull }> => {
+    const res = await api.post(`/enhance/generate-paper-card/${paperId}`);
     return res.data;
   },
 };

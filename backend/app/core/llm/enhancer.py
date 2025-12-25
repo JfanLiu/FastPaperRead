@@ -50,6 +50,18 @@ class ContentEnhancer:
         ])
         return self._parse_json_response(response)
     
+    async def explain_term_leveled(self, term: str, context: str) -> Dict:
+        """解释术语（三层版本）"""
+        prompt = prompts.TERM_EXPLAINER_LEVELED_PROMPT.format(
+            term=term,
+            context=context[:2000]
+        )
+        response = await self.llm.chat_completion([
+            {"role": "system", "content": "你是一个学术术语解释专家。"},
+            {"role": "user", "content": prompt}
+        ])
+        return self._parse_json_response(response)
+    
     async def explain_figure(self, caption: str, context: str) -> Dict:
         """解释图表"""
         prompt = prompts.FIGURE_EXPLAINER_PROMPT.format(
@@ -167,6 +179,89 @@ class ContentEnhancer:
         prompt = prompts.EXPERIMENT_SETUP_PROMPT.format(content=content[:8000])
         response = await self.llm.chat_completion([
             {"role": "system", "content": "你是一个实验设置分析专家。"},
+            {"role": "user", "content": prompt}
+        ])
+        return self._parse_json_response(response)
+    
+    async def generate_evidence_ledger(self, content: str) -> Dict:
+        """生成主张-证据台账"""
+        prompt = prompts.EVIDENCE_LEDGER_PROMPT.format(content=content[:8000])
+        response = await self.llm.chat_completion([
+            {"role": "system", "content": "你是一个学术论文证据分析专家。"},
+            {"role": "user", "content": prompt}
+        ])
+        return self._parse_json_response(response)
+    
+    async def generate_quote_snippet(
+        self, 
+        selected_text: str, 
+        authors: str, 
+        year: str, 
+        title: str
+    ) -> Dict:
+        """生成引用骨架"""
+        prompt = prompts.QUOTE_SNIPPET_PROMPT.format(
+            selected_text=selected_text[:2000],
+            authors=authors,
+            year=year,
+            title=title
+        )
+        response = await self.llm.chat_completion([
+            {"role": "system", "content": "你是一个学术写作助手。"},
+            {"role": "user", "content": prompt}
+        ])
+        return self._parse_json_response(response)
+    
+    async def summarize_section_leveled(self, section_title: str, content: str) -> Dict:
+        """生成三层摘要"""
+        prompt = prompts.SECTION_SUMMARY_LEVELED_PROMPT.format(
+            section_title=section_title,
+            content=content[:4000]
+        )
+        response = await self.llm.chat_completion([
+            {"role": "system", "content": "你是一个学术论文分析专家。"},
+            {"role": "user", "content": prompt}
+        ])
+        return self._parse_json_response(response)
+    
+    async def chat_with_paper(
+        self, 
+        message: str,
+        title: str,
+        authors: str,
+        year: str,
+        mode: str = "seminar",
+        context: str = "",
+        history: List[Dict] = None
+    ) -> str:
+        """与论文对话"""
+        system_prompt = prompts.CHAT_SYSTEM_PROMPT.format(
+            title=title,
+            authors=authors,
+            year=year,
+            mode=mode,
+            context=f"相关上下文:\n{context}" if context else ""
+        )
+        
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        # 添加历史消息
+        if history:
+            messages.extend(history[-10:])  # 只保留最近10条
+        
+        messages.append({"role": "user", "content": message})
+        
+        response = await self.llm.chat_completion(messages)
+        return response
+    
+    async def generate_paper_card_full(self, content: str, existing_cards: str = "") -> Dict:
+        """生成完整的PaperCard"""
+        prompt = prompts.GENERATE_PAPER_CARD_PROMPT.format(
+            content=content[:8000],
+            existing_cards=existing_cards[:2000] if existing_cards else "无"
+        )
+        response = await self.llm.chat_completion([
+            {"role": "system", "content": "你是一个论文总结专家。"},
             {"role": "user", "content": prompt}
         ])
         return self._parse_json_response(response)

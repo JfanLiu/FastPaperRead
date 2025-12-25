@@ -37,8 +37,11 @@ interface EnhancePanelProps {
 }
 
 interface TermExplanation {
-  definition: string;
-  explanation: string;
+  definition?: string;
+  explanation?: string;
+  one_liner?: string;
+  plain?: string;
+  strict?: string;
   examples: string[];
   related_terms: string[];
 }
@@ -481,14 +484,71 @@ export function EnhancePanel({
               </div>
               
               <div className="space-y-3 p-3 bg-indigo-50 rounded-lg">
-                <div>
-                  <span className="text-xs font-medium text-gray-500">定义</span>
-                  <p className="text-sm text-gray-700 mt-1">{termExplanation.definition}</p>
-                </div>
-                <div>
-                  <span className="text-xs font-medium text-gray-500">通俗解释</span>
-                  <p className="text-sm text-gray-700 mt-1">{termExplanation.explanation}</p>
-                </div>
+                {/* 三层解释内容 */}
+                {(termExplanation.one_liner || termExplanation.plain || termExplanation.strict) ? (
+                  <>
+                    {/* 当前选择的级别 */}
+                    <div>
+                      <span className="text-xs font-medium text-gray-500">
+                        {levelConfig[explanationLevel].label}解释
+                      </span>
+                      <p className="text-sm text-gray-700 mt-1 leading-relaxed">
+                        {explanationLevel === 'one_liner' && termExplanation.one_liner}
+                        {explanationLevel === 'plain' && termExplanation.plain}
+                        {explanationLevel === 'strict' && termExplanation.strict}
+                      </p>
+                    </div>
+                    {/* 快速切换其他级别 */}
+                    <div className="pt-2 border-t border-indigo-200">
+                      <span className="text-xs font-medium text-gray-500 block mb-2">其他解释深度</span>
+                      <div className="space-y-2">
+                        {explanationLevel !== 'one_liner' && termExplanation.one_liner && (
+                          <div className="p-2 bg-white rounded border border-indigo-100">
+                            <div className="flex items-center gap-1 text-xs text-indigo-600 mb-1">
+                              <Zap className="w-3 h-3" />
+                              一句话版
+                            </div>
+                            <p className="text-xs text-gray-600">{termExplanation.one_liner}</p>
+                          </div>
+                        )}
+                        {explanationLevel !== 'plain' && termExplanation.plain && (
+                          <div className="p-2 bg-white rounded border border-indigo-100">
+                            <div className="flex items-center gap-1 text-xs text-indigo-600 mb-1">
+                              <BookOpen className="w-3 h-3" />
+                              通俗版
+                            </div>
+                            <p className="text-xs text-gray-600">{termExplanation.plain}</p>
+                          </div>
+                        )}
+                        {explanationLevel !== 'strict' && termExplanation.strict && (
+                          <div className="p-2 bg-white rounded border border-indigo-100">
+                            <div className="flex items-center gap-1 text-xs text-indigo-600 mb-1">
+                              <GraduationCap className="w-3 h-3" />
+                              严格版
+                            </div>
+                            <p className="text-xs text-gray-600">{termExplanation.strict}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  /* 旧版解释格式兼容 */
+                  <>
+                    {termExplanation.definition && (
+                      <div>
+                        <span className="text-xs font-medium text-gray-500">定义</span>
+                        <p className="text-sm text-gray-700 mt-1">{termExplanation.definition}</p>
+                      </div>
+                    )}
+                    {termExplanation.explanation && (
+                      <div>
+                        <span className="text-xs font-medium text-gray-500">通俗解释</span>
+                        <p className="text-sm text-gray-700 mt-1">{termExplanation.explanation}</p>
+                      </div>
+                    )}
+                  </>
+                )}
                 {termExplanation.examples?.length > 0 && (
                   <div>
                     <span className="text-xs font-medium text-gray-500">示例</span>

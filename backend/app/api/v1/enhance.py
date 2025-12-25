@@ -99,7 +99,14 @@ async def enhance_content(
             term = request.selected_text or ""
             if not term:
                 raise HTTPException(status_code=400, detail="请提供要解释的术语")
-            result = await enhancer.explain_term(term, context)
+            
+            # 支持三层解释
+            if request.level and request.level in ["one_liner", "plain", "strict"]:
+                result = await enhancer.explain_term_leveled(term, context)
+                # 返回完整结果，前端根据level选择显示
+            else:
+                result = await enhancer.explain_term(term, context)
+            
             response_key = "term"
             
             # 缓存
@@ -123,7 +130,15 @@ async def enhance_content(
             response_key = "equation"
             
         elif request.enhance_type == "paragraph":
-            result = await enhancer.summarize_section("", context)
+            # 支持三层解释
+            if request.level and request.level in ["one_liner", "plain", "strict"]:
+                result = await enhancer.summarize_section_leveled("段落摘要", context)
+                # 根据level选择对应的摘要
+                if isinstance(result, dict):
+                    summary_text = result.get(request.level, result.get("plain", ""))
+                    result = summary_text
+            else:
+                result = await enhancer.summarize_section("", context)
             response_key = "summary"
             
         elif request.enhance_type == "missing_detail":
@@ -433,3 +448,134 @@ async def extract_experiment_setup(
         "experiment_setup": result,
         "cached": False
     }
+
+
+class QuoteSnippetRequest(BaseModel):
+    """引用骨架请求"""
+    paper_id: str
+    selected_text: str
+    anchor_id: Optional[str] = None
+
+
+@router.post("/quote-snippet", response_model=dict)
+async def generate_quote_snippet(
+    request: QuoteSnippetRequest,
+    db: Session = Depends(get_db),
+    enhancer: ContentEnhancer = Depends(get_enhancer)
+):
+    """
+    生成引用骨架
+    
+    - 将选中文本转换为学术写作可用的引用骨架
+    - 不直接复制原句，而是生成可改写的表述
+    """
+    paper = paper_crud.get(db, request.paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="论文不存在")
+    
+    # 准备作者信息
+    authors = ", ".join(paper.authors[:3]) if paper.authors else "Unknown"
+    if paper.authors and len(paper.authors) > 3:
+        authors += " et al."
+    
+    try:
+        result = await enhancer.generate_quote_snippet(
+            selected_text=request.selected_text,
+            authors=authors,
+            year=str(paper.year) if paper.year else "Unknown",
+            title=paper.title
+        )
+        
+        return {
+            "quote_snippet": result,
+            "paper_info": {
+                "title": paper.title,
+                "authors": authors,
+                "year": paper.year
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"生成失败: {str(e)}")
+
+
+class SectionSummaryLeveledRequest(BaseModel):
+    """三层摘要请求"""
+    section_title: str
+    content: str
+    level: str = "plain"  # one_liner/plain/strict
+
+
+@router.post("/section-summary-leveled", response_model=dict)
+async def generate_section_summary_leveled(
+    request: SectionSummaryLeveledRequest,
+    enhancer: ContentEnhancer = Depends(get_enhancer)
+):
+    """
+    生成三层摘要
+    
+    - one_liner: 一句话版本
+    - plain: 通俗版本（默认）
+    - strict: 严格版本
+    """
+    try:
+        result = await enhancer.summarize_section_leveled(
+            section_title=request.section_title,
+            content=request.content
+        )
+        
+        # 根据请求的level返回对应内容
+        if request.level == "one_liner":
+            summary = result.get("one_liner", "")
+        elif request.level == "strict":
+            summary = result.get("strict", "")
+        else:
+            summary = result.get("plain", "")
+        
+        return {
+            "summary": summary,
+            "level": request.level,
+            "all_levels": result
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"生成失败: {str(e)}")
+
+
+@router.post("/generate-paper-card/{paper_id}", response_model=dict)
+async def generate_paper_card_full(
+    paper_id: str,
+    db: Session = Depends(get_db),
+    enhancer: ContentEnhancer = Depends(get_enhancer)
+):
+    """
+    生成完整的PaperCard
+    
+    - 基于论文内容和已有卡片生成
+    - 包含一句话总结、贡献、局限、适用范围等
+    """
+    paper = paper_crud.get(db, paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="论文不存在")
+    
+    # 获取论文内容
+    content = get_paper_content(paper)
+    if not content:
+        raise HTTPException(status_code=400, detail="论文内容不足")
+    
+    # TODO: 获取已有卡片信息
+    existing_cards = ""
+    
+    try:
+        result = await enhancer.generate_paper_card_full(
+            content=content,
+            existing_cards=existing_cards
+        )
+        
+        return {
+            "paper_card": result,
+            "paper_id": paper_id
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"生成失败: {str(e)}")

@@ -39,6 +39,25 @@ TERM_EXPLAINER_PROMPT = """你是一个学术术语解释专家。请解释以�
 只输出JSON，不要其他内容。"""
 
 
+TERM_EXPLAINER_LEVELED_PROMPT = """你是一个学术术语解释专家。请用三种不同深度解释以下术语：
+
+术语：{term}
+
+上下文：
+{context}
+
+请按以下JSON格式输出：
+{{
+  "one_liner": "一句话版本：用最简洁的一句话定义这个术语",
+  "plain": "通俗版本：用2-3句话，以类比和日常语言解释这个术语，让非专业人士也能理解",
+  "strict": "严格版本：给出数学/技术上的精确定义，包含必要的形式化描述",
+  "examples": ["例子1", "例子2"],
+  "related_terms": ["相关术语1", "相关术语2"]
+}}
+
+只输出JSON，不要其他内容。"""
+
+
 FIGURE_EXPLAINER_PROMPT = """你是一个学术图表分析专家。请分析以下图表：
 
 图表标题/描述：{caption}
@@ -284,6 +303,136 @@ EXPERIMENT_SETUP_PROMPT = """你是一个实验设置分析专家。请从以下
     "hardware": "硬件配置"
   }},
   "reproducibility_notes": "复现注意事项"
+}}
+
+只输出JSON，不要其他内容。"""
+
+
+EVIDENCE_LEDGER_PROMPT = """你是一个学术论文证据分析专家。请从以下论文内容中提取核心主张及其支撑证据，生成主张-证据台账。
+
+论文内容：
+{content}
+
+请按以下JSON格式输出：
+{{
+  "claims": [
+    {{
+      "id": "claim_1",
+      "text": "论文的核心主张（用一句话概括）",
+      "evidence_summary": "支撑该主张的证据概述",
+      "evidence_type": "experimental/theoretical/empirical/citation",
+      "strength": "strong/medium/weak",
+      "uncertainty": "from_text/inferred/needs_verify",
+      "alternative_explanations": ["可能的替代解释1", "可能的替代解释2"],
+      "risks": ["潜在风险或局限1", "潜在风险或局限2"],
+      "source_sections": ["该主张来源的章节名"]
+    }}
+  ],
+  "overall_evidence_quality": "strong/medium/weak",
+  "key_assumptions": ["关键假设1", "关键假设2"],
+  "methodology_concerns": ["方法论上的疑虑（如有）"]
+}}
+
+注意：
+1. 识别论文中所有重要的主张/结论
+2. 每个主张都要评估证据强度
+3. 标注不确定性来源
+4. 提供替代解释和潜在风险
+
+只输出JSON，不要其他内容。"""
+
+
+QUOTE_SNIPPET_PROMPT = """你是一个学术写作助手。请将以下选中的论文原文转换为可用于学术写作的引用骨架。
+
+原文内容：
+{selected_text}
+
+论文信息：
+- 作者：{authors}
+- 年份：{year}
+- 标题：{title}
+
+请按以下JSON格式输出：
+{{
+  "skeleton": "根据 {authors} ({year}) 的研究，[改写后的核心观点]。该工作[方法/发现概述]，在[应用场景]中[效果描述]。",
+  "paraphrase": "完全改写后的版本，不直接引用原文",
+  "key_points": ["可引用的关键点1", "可引用的关键点2"],
+  "citation_context": "适合在什么写作场景下引用这段内容",
+  "writing_suggestions": ["写作建议1", "写作建议2"]
+}}
+
+注意：
+1. 不要直接复制原文，必须改写
+2. 保持学术写作风格
+3. 确保改写后意思准确
+
+只输出JSON，不要其他内容。"""
+
+
+SECTION_SUMMARY_LEVELED_PROMPT = """你是一个学术论文分析专家。请为以下章节内容生成三个层次的摘要。
+
+章节标题：{section_title}
+
+章节内容：
+{content}
+
+请按以下JSON格式输出：
+{{
+  "one_liner": "一句话版本：用最简洁的一句话概括本节核心内容",
+  "plain": "通俗版本：用2-3句话，以类比和通俗语言解释本节内容，适合非专业人士理解",
+  "strict": "严格版本：用3-5句话，包含精确的技术细节、数学定义、关键假设等，适合专业研究者"
+}}
+
+只输出JSON，不要其他内容。"""
+
+
+CHAT_SYSTEM_PROMPT = """你是一个专业的科研助手，正在帮助用户阅读和理解学术论文。
+
+当前论文信息：
+- 标题：{title}
+- 作者：{authors}
+- 年份：{year}
+
+当前模式：{mode}
+
+模式说明：
+- seminar（组会模式）：帮助用户准备论文讲解，追问关键细节，提出可能被问到的问题
+- writing（写作模式）：帮助用户理解如何在自己的论文中引用和对比这篇工作
+- reproduction（复现模式）：关注实验细节、超参数、数据处理等复现相关信息
+- design（方案设计模式）：基于论文内容，讨论可能的改进方向和研究方案
+
+{context}
+
+请基于以上信息回答用户的问题。回答要：
+1. 准确引用论文内容
+2. 明确标注推测内容
+3. 根据当前模式调整回答风格
+"""
+
+
+GENERATE_PAPER_CARD_PROMPT = """你是一个论文总结专家。请基于以下信息生成一个完整的PaperCard。
+
+论文内容：
+{content}
+
+已有的笔记卡片：
+{existing_cards}
+
+请按以下JSON格式输出：
+{{
+  "one_line_summary": "一句话总结论文的核心贡献",
+  "contributions": [
+    "贡献1：具体描述",
+    "贡献2：具体描述",
+    "贡献3：具体描述"
+  ],
+  "limitations": [
+    "局限性1：具体描述",
+    "局限性2：具体描述"
+  ],
+  "applicable_scope": "该方法/结论适用的场景和条件",
+  "repro_risk": "复现风险评估：说明复现该工作可能遇到的困难",
+  "key_takeaways": ["关键要点1", "关键要点2", "关键要点3"]
 }}
 
 只输出JSON，不要其他内容。"""

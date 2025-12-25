@@ -13,3 +13,7 @@ export { ChecklistPanel } from './ChecklistPanel';
 export { TimerWidget } from './TimerWidget';
 export { StructuredView } from './StructuredView';
 export { ResumeBanner } from './ResumeBanner';
+export { EvidenceLedger } from './EvidenceLedger';
+export { ChatPanel } from './ChatPanel';
+export { QuoteSnippetPanel } from './QuoteSnippetPanel';
+export { PaperCardGenerator } from './PaperCardGenerator';

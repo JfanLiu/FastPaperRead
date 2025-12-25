@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 import os
 
 from .config import settings
-from .api.v1 import papers, anchors, cards, skim, enhance, compare, review, export, checklist, ws, analytics
+from .api.v1 import papers, anchors, cards, skim, enhance, compare, review, export, checklist, ws, analytics, evidence_ledger, chat
 
 
 @asynccontextmanager
@@ -74,6 +74,8 @@ app.include_router(review.router, prefix="/api/v1/review", tags=["Review"])
 app.include_router(export.router, prefix="/api/v1/export", tags=["Export"])
 app.include_router(checklist.router, prefix="/api/v1/checklist", tags=["Checklist"])
 app.include_router(analytics.router, prefix="/api/v1/analytics", tags=["Analytics"])
+app.include_router(evidence_ledger.router, prefix="/api/v1/evidence-ledger", tags=["Evidence Ledger"])
+app.include_router(chat.router, prefix="/api/v1/chat", tags=["Chat"])
 app.include_router(ws.router, prefix="/ws", tags=["WebSocket"])
 
 
