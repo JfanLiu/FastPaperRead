@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
@@ -20,8 +20,8 @@ import {
   X,
 } from 'lucide-react';
 
-// 配置 PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+// 配置 PDF.js worker - 使用本地文件避免 CDN 访问问题
+pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
 
 interface PDFViewerProps {
   pdfUrl: string;
@@ -52,16 +52,86 @@ export function PDFViewer({
   
   const containerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  const blobUrlRef = useRef<string | null>(null);
+  const [documentLoaded, setDocumentLoaded] = useState(false);
+
+  // Memoize options prop
+  const documentOptions = useMemo(() => ({
+    cMapUrl: `https://unpkg.com/pdfjs-dist@${pdfjs.version}/cmaps/`,
+    cMapPacked: true,
+  }), []);
+
+  // 预先获取 PDF 数据，创建 Blob URL 避免跨域和 ArrayBuffer 问题
+  useEffect(() => {
+    let cancelled = false;
+    let currentBlobUrl: string | null = null;
+    
+    // 重置状态
+    setPdfBlobUrl(null);
+    setDocumentLoaded(false);
+    setNumPages(0);
+    
+    const fetchPdf = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        const response = await fetch(pdfUrl);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        const blob = await response.blob();
+        
+        // 检查是否已取消（React 严格模式下会发生）
+        if (cancelled) {
+          return;
+        }
+        
+        // 清理旧的 Blob URL
+        if (blobUrlRef.current) {
+          URL.revokeObjectURL(blobUrlRef.current);
+        }
+        
+        currentBlobUrl = URL.createObjectURL(blob);
+        blobUrlRef.current = currentBlobUrl;
+        setPdfBlobUrl(currentBlobUrl);
+      } catch (err) {
+        if (!cancelled) {
+          console.error('获取PDF失败:', err);
+          setError(`获取PDF失败: ${err instanceof Error ? err.message : '未知错误'}`);
+          setIsLoading(false);
+        }
+      }
+    };
+    
+    if (pdfUrl) {
+      fetchPdf();
+    }
+    
+    // 清理函数
+    return () => {
+      cancelled = true;
+      // 只清理本次 effect 创建的 URL
+      if (currentBlobUrl) {
+        URL.revokeObjectURL(currentBlobUrl);
+        if (blobUrlRef.current === currentBlobUrl) {
+          blobUrlRef.current = null;
+        }
+      }
+    };
+  }, [pdfUrl]);
 
   const onDocumentLoadSuccess = useCallback(({ numPages }: { numPages: number }) => {
     setNumPages(numPages);
+    setDocumentLoaded(true);
     setIsLoading(false);
     setError(null);
   }, []);
 
   const onDocumentLoadError = useCallback((error: Error) => {
     console.error('PDF加载失败:', error);
-    setError('PDF加载失败，请检查文件是否存在');
+    console.error('错误详情:', error.message, error.name, error.stack);
+    setError(`PDF加载失败: ${error.message || '请检查文件是否存在'}`);
     setIsLoading(false);
   }, []);
 
@@ -387,12 +457,18 @@ export function PDFViewer({
             <p className="text-lg mb-2">{error}</p>
             <p className="text-sm text-gray-400">文件: {pdfUrl}</p>
           </div>
-        ) : (
+        ) : !pdfBlobUrl && isLoading ? (
+          <div className="flex flex-col items-center justify-center py-20">
+            <Loader2 className="w-8 h-8 text-indigo-400 animate-spin mb-3" />
+            <span className="text-sm text-gray-300">正在获取PDF...</span>
+          </div>
+        ) : pdfBlobUrl ? (
           <div className="flex justify-center py-4">
             <Document
-              file={pdfUrl}
+              file={pdfBlobUrl}
               onLoadSuccess={onDocumentLoadSuccess}
               onLoadError={onDocumentLoadError}
+              options={documentOptions}
               loading={
                 <div className="flex flex-col items-center justify-center py-20">
                   <Loader2 className="w-8 h-8 text-indigo-400 animate-spin mb-3" />
@@ -401,8 +477,8 @@ export function PDFViewer({
               }
               className="flex flex-col items-center gap-4"
             >
-              {/* 渲染所有页面 */}
-              {Array.from({ length: numPages }, (_, index) => (
+              {/* 渲染所有页面 - 只在文档完全加载后渲染 */}
+              {documentLoaded && numPages > 0 && Array.from({ length: numPages }, (_, index) => (
                 <Page
                   key={`page_${index + 1}`}
                   pageNumber={index + 1}
@@ -426,7 +502,7 @@ export function PDFViewer({
               ))}
             </Document>
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* Page indicator in fullscreen */}

@@ -321,7 +321,8 @@ async def get_paper_pdf(paper_id: str, db: Session = Depends(get_db)):
     return FileResponse(
         path=pdf_path,
         media_type="application/pdf",
-        filename=f"{paper.title or 'paper'}.pdf"
+        filename=f"{paper.title or 'paper'}.pdf",
+        content_disposition_type="inline"  # 内嵌显示而非下载，让 PDF.js 能正确加载
     )
 
 
