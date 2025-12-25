@@ -12,8 +12,8 @@ aiosqlite>=0.19.0  # Async SQLite support
 # LLM
 openai>=1.10.0
 
-# PDF Processing (optional - for MinerU)
-# magic-pdf>=0.1.0  # Uncomment when available
+# PDF Processing - MinerU for high-quality PDF parsing
+mineru>=2.6.0
 
 # Search
 tavily-python>=0.3.0

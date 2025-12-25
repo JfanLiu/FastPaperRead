@@ -16,6 +16,10 @@ logger = logging.getLogger(__name__)
 # 缓存 MinerU 安装状态
 _mineru_available: Optional[bool] = None
 
+# 设置 HuggingFace 镜像（解决国内网络问题）
+if not os.environ.get("HF_ENDPOINT"):
+    os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+
 
 def check_mineru_installed() -> bool:
     """检查MinerU是否安装"""
@@ -23,10 +27,10 @@ def check_mineru_installed() -> bool:
     if _mineru_available is not None:
         return _mineru_available
     
-    # 检查命令是否存在
-    _mineru_available = shutil.which("magic-pdf") is not None
+    # 检查 mineru 命令是否存在（新版本使用 mineru 命令）
+    _mineru_available = shutil.which("mineru") is not None
     if _mineru_available:
-        logger.info("MinerU (magic-pdf) 已安装")
+        logger.info("MinerU (mineru) 已安装")
     else:
         logger.info("MinerU 未安装，将使用 PyMuPDF 备用解析器")
     return _mineru_available
@@ -49,7 +53,7 @@ class PDFParser:
     """
     PDF解析器
     
-    使用MinerU(magic-pdf)进行高质量PDF解析，提取：
+    使用MinerU进行高质量PDF解析，提取：
     - 结构化文本(Markdown)
     - 图表
     - 表格
@@ -115,30 +119,36 @@ class PDFParser:
         """
         运行MinerU进行解析
         
-        MinerU命令: magic-pdf -p {pdf_path} -o {output_path} -m auto
+        MinerU 2.x 命令: mineru -p {pdf_path} -o {output_path}
         """
         try:
-            # 使用magic-pdf命令行工具
+            # 使用 mineru 命令行工具（新版本）
             cmd = [
-                "magic-pdf",
+                "mineru",
                 "-p", str(pdf_path),
-                "-o", str(output_path),
-                "-m", "auto"  # 自动选择OCR或文本模式
+                "-o", str(output_path)
             ]
             
             logger.info(f"运行 MinerU: {' '.join(cmd)}")
             
+            # 设置环境变量，确保使用镜像
+            env = os.environ.copy()
+            env["HF_ENDPOINT"] = env.get("HF_ENDPOINT", "https://hf-mirror.com")
+            
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
+                env=env
             )
             
             stdout, stderr = await process.communicate()
             
             if process.returncode != 0:
                 # MinerU执行失败，使用备用方案
-                logger.warning(f"MinerU执行失败 (code={process.returncode}), 使用备用解析器")
+                error_msg = stderr.decode() if stderr else "未知错误"
+                logger.warning(f"MinerU执行失败 (code={process.returncode}): {error_msg[:200]}")
+                logger.warning("使用备用解析器")
                 return await self._fallback_parse(pdf_path, output_path)
             
             # 读取解析结果
@@ -272,15 +282,16 @@ class PDFParser:
     def _read_mineru_output(self, output_path: Path, pdf_name: str) -> ParseResult:
         """
         读取MinerU输出结果
-        """
-        # MinerU输出结构:
-        # output_path/
-        #   pdf_name/
-        #     auto/
-        #       pdf_name.md
-        #       content_list.json
-        #       images/
         
+        MinerU 2.x 输出结构:
+        output_path/
+          pdf_name/
+            auto/
+              pdf_name.md
+              pdf_name_content_list.json
+              images/
+        """
+        # MinerU 2.x 输出路径
         auto_path = output_path / pdf_name / "auto"
         
         # 读取Markdown
@@ -291,11 +302,18 @@ class PDFParser:
                 md_path = p
                 break
         
-        # 读取content_list
+        # 读取content_list（MinerU 2.x 格式）
         content_list = []
-        content_list_path = auto_path / "content_list.json"
+        content_list_path = auto_path / f"{pdf_name}_content_list.json"
+        if not content_list_path.exists():
+            # 旧版本格式
+            content_list_path = auto_path / "content_list.json"
+        
         if content_list_path.exists():
-            content_list = json.loads(content_list_path.read_text(encoding="utf-8"))
+            try:
+                content_list = json.loads(content_list_path.read_text(encoding="utf-8"))
+            except Exception as e:
+                logger.warning(f"读取 content_list.json 失败: {e}")
         
         # 提取各类元素
         figures = []
@@ -304,11 +322,11 @@ class PDFParser:
         
         for item in content_list:
             item_type = item.get("type", "")
-            if item_type == "image":
+            if item_type in ("image", "figure"):
                 figures.append(item)
             elif item_type == "table":
                 tables.append(item)
-            elif item_type == "equation":
+            elif item_type in ("equation", "interline_equation"):
                 equations.append(item)
         
         # 读取元数据
@@ -344,8 +362,9 @@ class PDFParser:
         clean_lines = []
         for line in lines:
             line = line.strip()
-            # 跳过空行、页码标记、分隔线
+            # 跳过空行、页码标记、分隔线、Markdown标记
             if line and not line.startswith("<!--") and not line.startswith("---") and not re.match(r'^\d+$', line):
+                # 移除 Markdown 标题标记以便处理
                 clean_lines.append(line)
         
         # 寻找标题 - 跳过出版信息行（如 "To appear in..."）
@@ -357,14 +376,19 @@ class PDFParser:
             # 跳过太短的行
             if len(line) < 5:
                 continue
+            # 移除 Markdown 标题标记
+            clean_title = re.sub(r'^#+\s*', '', line)
             # 找到看起来像标题的行
-            if len(line) > 5 and not re.match(r'^(Abstract|Keywords|Introduction)', line, re.IGNORECASE):
-                metadata["title"] = line[:200]
+            if len(clean_title) > 5 and not re.match(r'^(Abstract|Keywords|Introduction)', clean_title, re.IGNORECASE):
+                metadata["title"] = clean_title[:200]
                 title_idx = i
                 break
         
         # 寻找作者 - 在标题之后、摘要之前
         for i, line in enumerate(clean_lines[title_idx+1:title_idx+20]):
+            # 移除 Markdown 标记
+            line = re.sub(r'^#+\s*', '', line)
+            
             # 遇到摘要就停止
             if re.match(r'^Abstract', line, re.IGNORECASE):
                 break
@@ -398,11 +422,11 @@ class PDFParser:
         # 去重并限制数量
         metadata["authors"] = list(dict.fromkeys(metadata["authors"]))[:20]
         
-        # 尝试提取摘要
+        # 尝试提取摘要 - 支持 Markdown 格式
         abstract_match = re.search(
-            r'(?:Abstract|摘要)[:\s]*\n?(.+?)(?=\n(?:CR Categories|Keywords|Introduction|1\s|1\.|\n#))',
+            r'(?:^#+\s*Abstract|^Abstract)[:\s]*\n?(.+?)(?=\n(?:CR Categories|Keywords|^#+|Introduction|1\s|1\.))',
             text,
-            re.IGNORECASE | re.DOTALL
+            re.IGNORECASE | re.DOTALL | re.MULTILINE
         )
         if abstract_match:
             abstract_text = abstract_match.group(1).strip()
@@ -412,7 +436,7 @@ class PDFParser:
         
         # 尝试提取关键词
         keywords_match = re.search(
-            r'Keywords?[:\s]*(.+?)(?=\n\n|\n\d\.|\nIntroduction)',
+            r'Keywords?[:\s]*(.+?)(?=\n\n|\n\d\.|\nIntroduction|\n#)',
             text,
             re.IGNORECASE | re.DOTALL
         )
