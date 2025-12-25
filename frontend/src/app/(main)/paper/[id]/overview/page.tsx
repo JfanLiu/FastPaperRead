@@ -125,7 +125,12 @@ export default function OverviewPage({ params }: PageProps) {
     );
   }
 
-  const figures = currentAnchors.filter(a => a.type === 'figure');
+  // 只显示有图片的 figure anchor，并按 image_path 去重
+  const figures = currentAnchors
+    .filter(a => a.type === 'figure' && a.image_path)
+    .filter((fig, index, self) => 
+      index === self.findIndex(f => f.image_path === fig.image_path)
+    );
 
   return (
     <MainLayout showSearch={false} showRightPanel>
@@ -298,7 +303,9 @@ export default function OverviewPage({ params }: PageProps) {
                     )}
                   </div>
                   <p className="text-xs text-gray-600 line-clamp-2">
-                    {fig.figure_number || fig.caption || `图 ${figures.indexOf(fig) + 1}`}
+                    {fig.caption && fig.caption.length > 5 
+                      ? fig.caption 
+                      : `图 ${figures.indexOf(fig) + 1}`}
                   </p>
                 </div>
               ))}
