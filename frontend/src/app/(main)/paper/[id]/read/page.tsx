@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { 
-  AnchorList, 
   EnhancePanel, 
   SelectionToolbar,
   RoutePlanner,
@@ -26,12 +25,10 @@ import {
   ChevronLeft,
   ChevronRight,
   BookOpen,
-  Layers,
   Sparkles,
   FileText,
   Settings,
   Save,
-  Share,
   Loader2,
   ListChecks,
   MessageSquare,
@@ -57,7 +54,6 @@ const PDFViewer = dynamic(
   }
 );
 
-type ViewMode = 'pdf' | 'markdown' | 'split';
 type RightPanelTab = 'enhance' | 'notes' | 'checklist' | 'chat' | 'timer';
 
 interface ReadingSession {
@@ -90,7 +86,6 @@ export default function ReadPage() {
   const [isLoading, setIsLoading] = useState(true);
   
   // 视图状态
-  const [viewMode, setViewMode] = useState<ViewMode>('split');
   const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>('enhance');
   const [selectedAnchor, setSelectedAnchor] = useState<Anchor | null>(null);
   const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false);
@@ -486,37 +481,6 @@ export default function ReadPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* View mode toggle */}
-          <div className="flex items-center bg-gray-100 rounded-lg p-1">
-            <button
-              onClick={() => setViewMode('pdf')}
-              className={cn(
-                'px-3 py-1 text-sm rounded-md transition-colors',
-                viewMode === 'pdf' ? 'bg-white shadow text-gray-900' : 'text-gray-600'
-              )}
-            >
-              PDF
-            </button>
-            <button
-              onClick={() => setViewMode('split')}
-              className={cn(
-                'px-3 py-1 text-sm rounded-md transition-colors',
-                viewMode === 'split' ? 'bg-white shadow text-gray-900' : 'text-gray-600'
-              )}
-            >
-              分屏
-            </button>
-            <button
-              onClick={() => setViewMode('markdown')}
-              className={cn(
-                'px-3 py-1 text-sm rounded-md transition-colors',
-                viewMode === 'markdown' ? 'bg-white shadow text-gray-900' : 'text-gray-600'
-              )}
-            >
-              结构化
-            </button>
-          </div>
-
           {/* Progress */}
           <div className="flex items-center gap-2">
             <span className="text-sm text-gray-500">进度</span>
@@ -617,77 +581,15 @@ export default function ReadPage() {
 
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left Panel - Outline */}
+        {/* Left Panel - Structured View (合并了大纲功能) */}
         <div
           className={cn(
-            'bg-white border-r border-gray-200 transition-all duration-300',
-            leftPanelCollapsed ? 'w-0' : 'w-64'
+            'bg-white border-r border-gray-200 transition-all duration-300 flex flex-col',
+            leftPanelCollapsed ? 'w-0' : 'w-80'
           )}
         >
           {!leftPanelCollapsed && (
-            <div className="h-full overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-                <div className="flex items-center gap-2">
-                  <Layers className="w-4 h-4 text-gray-500" />
-                  <span className="font-medium text-gray-900">大纲</span>
-                </div>
-                <button
-                  onClick={() => setLeftPanelCollapsed(true)}
-                  className="p-1 text-gray-400 hover:text-gray-600"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-              </div>
-              <AnchorList
-                anchors={anchors}
-                onAnchorClick={handleAnchorClick}
-                selectedAnchorId={selectedAnchor?.id}
-                className="h-[calc(100%-53px)]"
-              />
-            </div>
-          )}
-        </div>
-
-        {leftPanelCollapsed && (
-          <button
-            onClick={() => setLeftPanelCollapsed(false)}
-            className="flex items-center justify-center w-6 bg-white border-r border-gray-200 text-gray-400 hover:text-gray-600"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        )}
-
-        {/* Center - PDF/Structured Viewer */}
-        <div className="flex-1 flex overflow-hidden" onMouseUp={handleTextSelection}>
-          {(viewMode === 'pdf' || viewMode === 'split') && (
-            <div className={cn('flex-1', viewMode === 'split' && 'border-r border-gray-300')}>
-              <PDFViewer
-                pdfUrl={getPdfUrl(paperId)}
-                paperId={paperId}
-                highlightAnchorId={selectedAnchor?.id}
-                onAnchorClick={(id) => {
-                  const anchor = anchors.find(a => a.id === id);
-                  if (anchor) handleAnchorClick(anchor);
-                }}
-                syncEnabled={syncEnabled}
-                onPageChange={(page) => {
-                  setCurrentPdfPage(page);
-                  // 根据页码找到对应的章节
-                  if (syncEnabled) {
-                    const sectionAnchor = anchors.find(a => 
-                      a.type === 'section' && a.page === page
-                    );
-                    if (sectionAnchor) {
-                      setHighlightedSectionId(sectionAnchor.id);
-                    }
-                  }
-                }}
-              />
-            </div>
-          )}
-          
-          {(viewMode === 'markdown' || viewMode === 'split') && (
-            <div className="flex-1 bg-white overflow-hidden flex flex-col">
+            <>
               <StructuredView
                 anchors={anchors}
                 paperId={paperId}
@@ -727,8 +629,45 @@ export default function ReadPage() {
                   if (anchor) handleAnchorClick(anchor);
                 }}
               />
-            </div>
+            </>
           )}
+        </div>
+
+        {leftPanelCollapsed && (
+          <button
+            onClick={() => setLeftPanelCollapsed(false)}
+            className="flex items-center justify-center w-6 bg-white border-r border-gray-200 text-gray-400 hover:text-gray-600"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        )}
+
+        {/* Center - PDF Viewer */}
+        <div className="flex-1 flex overflow-hidden" onMouseUp={handleTextSelection}>
+          <div className="flex-1">
+            <PDFViewer
+              pdfUrl={getPdfUrl(paperId)}
+              paperId={paperId}
+              highlightAnchorId={selectedAnchor?.id}
+              onAnchorClick={(id) => {
+                const anchor = anchors.find(a => a.id === id);
+                if (anchor) handleAnchorClick(anchor);
+              }}
+              syncEnabled={syncEnabled}
+              onPageChange={(page) => {
+                setCurrentPdfPage(page);
+                // 根据页码找到对应的章节
+                if (syncEnabled) {
+                  const sectionAnchor = anchors.find(a => 
+                    a.type === 'section' && a.page === page
+                  );
+                  if (sectionAnchor) {
+                    setHighlightedSectionId(sectionAnchor.id);
+                  }
+                }
+              }}
+            />
+          </div>
         </div>
 
         {/* Selection Toolbar */}

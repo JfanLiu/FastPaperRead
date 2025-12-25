@@ -7,6 +7,7 @@ import { enhanceApi } from '@/lib/api';
 import {
   ChevronDown,
   ChevronRight,
+  ChevronLeft,
   CheckCircle2,
   Circle,
   FileText,
@@ -23,6 +24,8 @@ import {
   ChevronUp,
   Copy,
   Check,
+  Hash,
+  Filter,
 } from 'lucide-react';
 import { Button, Badge } from '@/components/common';
 
@@ -35,11 +38,20 @@ interface StructuredViewProps {
   onMarkComplete?: (sectionId: string) => void;
   onExtractToChecklist?: (anchor: Anchor) => void;
   onAddToChecklist?: (items: { group: string; text: string }[]) => void;
+  onCollapse?: () => void;  // 折叠面板
   className?: string;
   // 双向同步
   currentPage?: number;  // 当前 PDF 页码
   highlightedSectionId?: string;  // 高亮的章节 ID
 }
+
+// 锚点类型配置
+const anchorTypeConfig: Record<string, { icon: React.ComponentType<{ className?: string }>; color: string; label: string }> = {
+  section: { icon: Hash, color: 'text-indigo-600', label: '章节' },
+  figure: { icon: Image, color: 'text-emerald-600', label: '图表' },
+  table: { icon: Table, color: 'text-amber-600', label: '表格' },
+  equation: { icon: Calculator, color: 'text-purple-600', label: '公式' },
+};
 
 interface SectionNode {
   anchor: Anchor;
@@ -59,10 +71,13 @@ export function StructuredView({
   highlightedSectionId,
   onExtractToChecklist,
   onAddToChecklist,
+  onCollapse,
   className,
 }: StructuredViewProps) {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['root']));
   const [hoveredSection, setHoveredSection] = useState<string | null>(null);
+  const [filterType, setFilterType] = useState<string | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
   
   // 快速提取状态
   const [methodFlowLoading, setMethodFlowLoading] = useState(false);
@@ -212,21 +227,86 @@ export function StructuredView({
 
   const routeSet = new Set(currentRoute.map(s => s.toLowerCase()));
 
+  // 筛选锚点
+  const filteredAnchors = filterType
+    ? anchors.filter(a => a.type === filterType)
+    : null;
+
   return (
     <div className={cn('flex flex-col h-full bg-white', className)}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
         <div className="flex items-center gap-2">
           <FileText className="w-4 h-4 text-indigo-600" />
-          <span className="font-medium text-gray-900">结构化视图</span>
+          <span className="font-medium text-gray-900">论文结构</span>
         </div>
-        <div className="text-xs text-gray-500">
-          {completedSections.size} / {sectionAnchors.length} 已完成
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={cn(
+              'p-1 rounded transition-colors',
+              showFilters ? 'bg-indigo-100 text-indigo-600' : 'text-gray-400 hover:text-gray-600'
+            )}
+            title="筛选"
+          >
+            <Filter className="w-4 h-4" />
+          </button>
+          {onCollapse && (
+            <button
+              onClick={onCollapse}
+              className="p-1 text-gray-400 hover:text-gray-600"
+              title="折叠面板"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
 
+      {/* Filter tabs */}
+      {showFilters && (
+        <div className="flex flex-wrap gap-1 px-3 py-2 border-b border-gray-100 bg-gray-50">
+          <button
+            onClick={() => setFilterType(null)}
+            className={cn(
+              'px-2 py-1 text-xs rounded-full transition-colors',
+              filterType === null
+                ? 'bg-indigo-100 text-indigo-700'
+                : 'text-gray-600 hover:bg-gray-100'
+            )}
+          >
+            全部
+          </button>
+          {Object.entries(anchorTypeConfig).map(([type, config]) => {
+            const count = anchors.filter(a => a.type === type).length;
+            if (count === 0) return null;
+            const IconComponent = config.icon;
+            return (
+              <button
+                key={type}
+                onClick={() => setFilterType(type)}
+                className={cn(
+                  'px-2 py-1 text-xs rounded-full transition-colors flex items-center gap-1',
+                  filterType === type
+                    ? 'bg-indigo-100 text-indigo-700'
+                    : 'text-gray-600 hover:bg-gray-100'
+                )}
+              >
+                <IconComponent className="w-3 h-3" />
+                {config.label}
+                <span className="text-gray-400">({count})</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Progress bar */}
       <div className="px-4 py-2 border-b border-gray-100">
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-xs text-gray-500">阅读进度</span>
+          <span className="text-xs text-gray-600">{completedSections.size} / {sectionAnchors.length}</span>
+        </div>
         <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
           <div
             className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-300"
@@ -241,7 +321,36 @@ export function StructuredView({
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-3">
-        {sectionAnchors.length > 0 ? (
+        {/* 筛选结果视图 */}
+        {filteredAnchors ? (
+          <div className="space-y-1">
+            {filteredAnchors.length === 0 ? (
+              <div className="text-center py-8 text-gray-500 text-sm">
+                暂无此类型的内容
+              </div>
+            ) : (
+              filteredAnchors.map((anchor) => {
+                const typeConfig = anchorTypeConfig[anchor.type || 'section'];
+                const IconComponent = typeConfig?.icon || FileText;
+                return (
+                  <div
+                    key={anchor.id}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
+                    onClick={() => onSectionClick?.(anchor)}
+                  >
+                    <IconComponent className={cn('w-4 h-4', typeConfig?.color || 'text-gray-500')} />
+                    <span className="text-sm text-gray-700 truncate flex-1">
+                      {anchor.text || anchor.section || `${anchor.type} ${anchor.id}`}
+                    </span>
+                    {anchor.page && (
+                      <span className="text-xs text-gray-400">P{anchor.page}</span>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        ) : sectionAnchors.length > 0 ? (
           <div className="space-y-1">
             {sectionAnchors.map((section) => {
               const sectionName = section.text || section.section || '';

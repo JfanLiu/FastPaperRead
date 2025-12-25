@@ -4,7 +4,8 @@
 // import dynamic from 'next/dynamic';
 // const PDFViewer = dynamic(() => import('@/components/reader/PDFViewer').then(mod => ({ default: mod.PDFViewer })), { ssr: false });
 
-export { AnchorList } from './AnchorList';
+// AnchorList 已合并到 StructuredView，如需单独使用可直接 import
+// export { AnchorList } from './AnchorList';
 export { EnhancePanel } from './EnhancePanel';
 export { SelectionToolbar } from './SelectionToolbar';
 export { RoutePlanner } from './RoutePlanner';
