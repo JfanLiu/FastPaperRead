@@ -9,7 +9,7 @@ from datetime import datetime
 import uuid
 
 from ...api.deps import get_db
-from ...crud import paper as paper_crud
+from ...crud import paper_crud
 
 router = APIRouter()
 
