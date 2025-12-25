@@ -394,3 +394,27 @@ export interface PaperCardFull {
   repro_risk: string;
   key_takeaways: string[];
 }
+
+// ============ PDF 批注/高亮 ============
+
+export type AnnotationType = 'highlight' | 'note';
+export type HighlightColor = 'yellow' | 'green' | 'blue' | 'red' | 'purple';
+
+export interface AnnotationRect {
+  x: number;      // 相对于页面的百分比位置
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface Annotation {
+  id: string;
+  type: AnnotationType;
+  page: number;
+  text?: string;       // 选中的原文
+  note?: string;       // 批注内容
+  color: HighlightColor;
+  rect: AnnotationRect;
+  created_at: string;
+  updated_at: string;
+}

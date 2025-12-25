@@ -618,5 +618,55 @@ export const enhanceApiExtended = {
   },
 };
 
+// ============================================
+// Annotations API (PDF批注/高亮)
+// ============================================
+
+import type { Annotation, AnnotationType, HighlightColor, AnnotationRect } from '@/types';
+
+export const annotationsApi = {
+  // 获取论文的所有批注
+  getAll: async (paperId: string): Promise<{ annotations: Annotation[]; count: number }> => {
+    const res = await api.get(`/annotations/${paperId}`);
+    return res.data;
+  },
+
+  // 创建批注/高亮
+  create: async (
+    paperId: string,
+    data: {
+      type: AnnotationType;
+      page: number;
+      text?: string;
+      note?: string;
+      color?: HighlightColor;
+      rect: AnnotationRect;
+    }
+  ): Promise<{ annotation: Annotation }> => {
+    const res = await api.post(`/annotations/${paperId}`, data);
+    return res.data;
+  },
+
+  // 更新批注
+  update: async (
+    paperId: string,
+    annotationId: string,
+    data: { note?: string; color?: HighlightColor }
+  ): Promise<void> => {
+    await api.put(`/annotations/${paperId}/${annotationId}`, data);
+  },
+
+  // 删除批注
+  delete: async (paperId: string, annotationId: string): Promise<void> => {
+    await api.delete(`/annotations/${paperId}/${annotationId}`);
+  },
+
+  // 清除批注
+  clear: async (paperId: string, page?: number): Promise<void> => {
+    const params = page !== undefined ? { page } : {};
+    await api.delete(`/annotations/${paperId}`, { params });
+  },
+};
+
 export default api;
 

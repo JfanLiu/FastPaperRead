@@ -116,6 +116,11 @@ export default function ReadPage() {
   
   // PaperCard 生成器
   const [showPaperCardGenerator, setShowPaperCardGenerator] = useState(false);
+  
+  // 双向同步状态
+  const [currentPdfPage, setCurrentPdfPage] = useState(1);
+  const [syncEnabled, setSyncEnabled] = useState(true);
+  const [highlightedSectionId, setHighlightedSectionId] = useState<string | null>(null);
 
   // 加载数据
   useEffect(() => {
@@ -532,31 +537,80 @@ export default function ReadPage() {
             {isPaused ? <Play className="w-5 h-5" /> : <Pause className="w-5 h-5" />}
           </button>
 
-          {/* Route */}
+          {/* Route Dropdown */}
+          <div className="relative">
+            <select
+              value={currentRoute.length > 0 ? 'custom' : ''}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value === 'quick-repro') {
+                  setCurrentRoute(['Method', 'Experiments', 'Implementation Details', 'Appendix']);
+                } else if (value === 'reviewer') {
+                  setCurrentRoute(['Abstract', 'Introduction', 'Method', 'Experiments', 'Conclusion']);
+                } else if (value === 'full-read') {
+                  setCurrentRoute(['Abstract', 'Introduction', 'Related Work', 'Method', 'Experiments', 'Discussion', 'Conclusion']);
+                } else if (value === 'custom') {
+                  setShowRoutePlanner(true);
+                }
+              }}
+              className="pl-3 pr-8 py-1.5 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="">选择路线</option>
+              <option value="quick-repro">🔧 快速复现</option>
+              <option value="reviewer">📋 审稿路线</option>
+              <option value="full-read">📖 全文精读</option>
+              <option value="custom">⚙️ 自定义...</option>
+            </select>
+          </div>
+
+          {/* Sync Toggle */}
+          <button
+            onClick={() => setSyncEnabled(!syncEnabled)}
+            className={cn(
+              'px-2 py-1.5 text-xs rounded-lg transition-colors',
+              syncEnabled 
+                ? 'text-emerald-600 bg-emerald-50' 
+                : 'text-gray-500 bg-gray-100'
+            )}
+            title={syncEnabled ? '双向同步已开启' : '双向同步已关闭'}
+          >
+            {syncEnabled ? '🔗 同步' : '🔗 不同步'}
+          </button>
+
+          <div className="w-px h-5 bg-gray-200" />
+
+          {/* Product Quick Actions */}
+          <div className="flex items-center gap-1">
+            <button 
+              onClick={() => setShowPaperCardGenerator(true)}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg"
+              title="生成 PaperCard"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              PaperCard
+            </button>
+            <button 
+              onClick={() => {
+                setRightPanelTab('notes');
+                setRightPanelCollapsed(false);
+              }}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-purple-600 bg-purple-50 hover:bg-purple-100 rounded-lg"
+              title="导出卡片"
+            >
+              <Save className="w-3.5 h-3.5" />
+              导出
+            </button>
+          </div>
+
+          <div className="w-px h-5 bg-gray-200" />
+
+          {/* Settings */}
           <button 
             onClick={() => setShowRoutePlanner(true)}
             className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg"
-            title="修改阅读路线"
+            title="更多设置"
           >
             <Settings className="w-5 h-5" />
-          </button>
-
-          {/* Generate PaperCard */}
-          <button 
-            onClick={() => setShowPaperCardGenerator(true)}
-            className="flex items-center gap-1 px-3 py-1.5 text-sm text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg"
-            title="生成 PaperCard"
-          >
-            <FileText className="w-4 h-4" />
-            生成卡片
-          </button>
-
-          {/* Actions */}
-          <button className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg">
-            <Save className="w-5 h-5" />
-          </button>
-          <button className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg">
-            <Share className="w-5 h-5" />
           </button>
         </div>
       </div>
@@ -609,10 +663,24 @@ export default function ReadPage() {
             <div className={cn('flex-1', viewMode === 'split' && 'border-r border-gray-300')}>
               <PDFViewer
                 pdfUrl={getPdfUrl(paperId)}
+                paperId={paperId}
                 highlightAnchorId={selectedAnchor?.id}
                 onAnchorClick={(id) => {
                   const anchor = anchors.find(a => a.id === id);
                   if (anchor) handleAnchorClick(anchor);
+                }}
+                syncEnabled={syncEnabled}
+                onPageChange={(page) => {
+                  setCurrentPdfPage(page);
+                  // 根据页码找到对应的章节
+                  if (syncEnabled) {
+                    const sectionAnchor = anchors.find(a => 
+                      a.type === 'section' && a.page === page
+                    );
+                    if (sectionAnchor) {
+                      setHighlightedSectionId(sectionAnchor.id);
+                    }
+                  }
                 }}
               />
             </div>
@@ -648,6 +716,8 @@ export default function ReadPage() {
                   });
                   setRightPanelTab('checklist');
                 }}
+                currentPage={currentPdfPage}
+                highlightedSectionId={highlightedSectionId || undefined}
                 className="flex-1"
               />
               <EvidenceLedger

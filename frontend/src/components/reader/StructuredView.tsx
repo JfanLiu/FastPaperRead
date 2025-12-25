@@ -36,6 +36,9 @@ interface StructuredViewProps {
   onExtractToChecklist?: (anchor: Anchor) => void;
   onAddToChecklist?: (items: { group: string; text: string }[]) => void;
   className?: string;
+  // 双向同步
+  currentPage?: number;  // 当前 PDF 页码
+  highlightedSectionId?: string;  // 高亮的章节 ID
 }
 
 interface SectionNode {
@@ -52,6 +55,8 @@ export function StructuredView({
   completedSections = new Set(),
   onSectionClick,
   onMarkComplete,
+  currentPage,
+  highlightedSectionId,
   onExtractToChecklist,
   onAddToChecklist,
   className,
@@ -252,6 +257,7 @@ export function StructuredView({
                     className={cn(
                       'group flex items-center gap-2 px-3 py-2.5 rounded-lg cursor-pointer transition-all',
                       isInRoute && 'bg-indigo-50',
+                      highlightedSectionId === section.id && 'bg-amber-50 ring-1 ring-amber-200',
                       hoveredSection === section.id && 'bg-gray-50',
                       isCompleted && 'opacity-60'
                     )}
