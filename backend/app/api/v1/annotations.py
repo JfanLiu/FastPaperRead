@@ -8,7 +8,7 @@ from typing import List, Optional
 from datetime import datetime
 import uuid
 
-from ...database import get_db
+from ...api.deps import get_db
 from ...crud import paper as paper_crud
 
 router = APIRouter()
