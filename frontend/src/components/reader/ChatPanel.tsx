@@ -17,16 +17,7 @@ import {
   Lightbulb
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Textarea } from '@/components/ui/textarea';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
+import { Button, Badge } from '@/components/common';
 import { chatApi } from '@/lib/api';
 import type { ChatMessage, ChatMode, ChatHistory } from '@/types';
 
@@ -44,25 +35,25 @@ const modeConfig: Record<ChatMode, { label: string; icon: React.ReactNode; descr
     label: '组会',
     icon: <Users className="w-3.5 h-3.5" />,
     description: '准备讲解，追问关键细节',
-    color: 'bg-blue-100 text-blue-700 border-blue-200'
+    color: 'bg-blue-100 text-blue-700'
   },
   writing: {
     label: '写作',
     icon: <PenTool className="w-3.5 h-3.5" />,
     description: '帮助引用和对比',
-    color: 'bg-purple-100 text-purple-700 border-purple-200'
+    color: 'bg-purple-100 text-purple-700'
   },
   reproduction: {
     label: '复现',
     icon: <FlaskConical className="w-3.5 h-3.5" />,
     description: '关注实验细节和超参数',
-    color: 'bg-green-100 text-green-700 border-green-200'
+    color: 'bg-green-100 text-green-700'
   },
   design: {
     label: '设计',
     icon: <Lightbulb className="w-3.5 h-3.5" />,
     description: '讨论改进方向',
-    color: 'bg-orange-100 text-orange-700 border-orange-200'
+    color: 'bg-orange-100 text-orange-700'
   },
 };
 
@@ -121,7 +112,6 @@ export function ChatPanel({
     try {
       const response = await chatApi.switchMode(paperId, mode);
       setCurrentMode(mode);
-      // 添加系统消息
       const systemMessage: ChatMessage = {
         role: 'assistant',
         content: response.description,
@@ -158,10 +148,9 @@ export function ChatPanel({
         selectedAnchorIds
       );
       setMessages(prev => [...prev, response.message]);
-      setContextText(null); // 清除上下文
+      setContextText(null);
     } catch (error) {
       console.error('发送消息失败:', error);
-      // 添加错误消息
       const errorMessage: ChatMessage = {
         role: 'assistant',
         content: '抱歉，消息发送失败，请重试。',
@@ -194,117 +183,105 @@ export function ChatPanel({
   };
 
   return (
-    <TooltipProvider>
-      <div className={cn('flex flex-col h-full bg-white', className)}>
-        {/* 模式选择器 */}
-        <div className="flex items-center gap-1 p-2 border-b border-gray-200">
-          {(Object.entries(modeConfig) as [ChatMode, typeof modeConfig[ChatMode]][]).map(([mode, config]) => (
-            <Tooltip key={mode}>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => handleModeChange(mode)}
-                  className={cn(
-                    'flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-colors',
-                    currentMode === mode
-                      ? config.color
-                      : 'text-gray-500 hover:bg-gray-100'
-                  )}
-                >
-                  {config.icon}
-                  {config.label}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{config.description}</TooltipContent>
-            </Tooltip>
-          ))}
-          <div className="flex-1" />
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={handleClearHistory}
-                className="h-7 w-7 p-0"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>清空记录</TooltipContent>
-          </Tooltip>
-        </div>
+    <div className={cn('flex flex-col h-full bg-white', className)}>
+      {/* 模式选择器 */}
+      <div className="flex items-center gap-1 p-2 border-b border-gray-200">
+        {(Object.entries(modeConfig) as [ChatMode, typeof modeConfig[ChatMode]][]).map(([mode, config]) => (
+          <button
+            key={mode}
+            onClick={() => handleModeChange(mode)}
+            className={cn(
+              'flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-colors',
+              currentMode === mode
+                ? config.color
+                : 'text-gray-500 hover:bg-gray-100'
+            )}
+            title={config.description}
+          >
+            {config.icon}
+            {config.label}
+          </button>
+        ))}
+        <div className="flex-1" />
+        <button
+          onClick={handleClearHistory}
+          className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
+          title="清空记录"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
 
-        {/* 上下文提示 */}
-        {contextText && (
-          <div className="mx-2 mt-2 p-2 bg-indigo-50 rounded-lg border border-indigo-200">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-medium text-indigo-700">已选中上下文</span>
-              <button
-                onClick={() => setContextText(null)}
-                className="text-xs text-indigo-500 hover:text-indigo-700"
-              >
-                移除
-              </button>
-            </div>
-            <p className="text-xs text-indigo-600 line-clamp-2">{contextText}</p>
+      {/* 上下文提示 */}
+      {contextText && (
+        <div className="mx-2 mt-2 p-2 bg-indigo-50 rounded-lg border border-indigo-200">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-medium text-indigo-700">已选中上下文</span>
+            <button
+              onClick={() => setContextText(null)}
+              className="text-xs text-indigo-500 hover:text-indigo-700"
+            >
+              移除
+            </button>
+          </div>
+          <p className="text-xs text-indigo-600 line-clamp-2">{contextText}</p>
+        </div>
+      )}
+
+      {/* 消息列表 */}
+      <div className="flex-1 p-3 overflow-y-auto" ref={scrollRef}>
+        {isLoadingHistory ? (
+          <div className="flex items-center justify-center h-full">
+            <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+          </div>
+        ) : messages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400">
+            <MessageSquare className="w-10 h-10 mb-2 opacity-50" />
+            <p className="text-sm">开始与 AI 讨论这篇论文</p>
+            <p className="text-xs mt-1">当前模式: {modeConfig[currentMode].label}</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {messages.map((msg, idx) => (
+              <MessageBubble
+                key={idx}
+                message={msg}
+                onAddToChecklist={onAddToChecklist}
+                onCreateCard={onCreateCard}
+              />
+            ))}
+            {isLoading && (
+              <div className="flex items-center gap-2 text-gray-400">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span className="text-sm">思考中...</span>
+              </div>
+            )}
           </div>
         )}
+      </div>
 
-        {/* 消息列表 */}
-        <ScrollArea className="flex-1 p-3" ref={scrollRef}>
-          {isLoadingHistory ? (
-            <div className="flex items-center justify-center h-full">
-              <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
-            </div>
-          ) : messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-gray-400">
-              <MessageSquare className="w-10 h-10 mb-2 opacity-50" />
-              <p className="text-sm">开始与 AI 讨论这篇论文</p>
-              <p className="text-xs mt-1">当前模式: {modeConfig[currentMode].label}</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {messages.map((msg, idx) => (
-                <MessageBubble
-                  key={idx}
-                  message={msg}
-                  onAddToChecklist={onAddToChecklist}
-                  onCreateCard={onCreateCard}
-                />
-              ))}
-              {isLoading && (
-                <div className="flex items-center gap-2 text-gray-400">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span className="text-sm">思考中...</span>
-                </div>
-              )}
-            </div>
-          )}
-        </ScrollArea>
-
-        {/* 输入区域 */}
-        <div className="p-3 border-t border-gray-200">
-          <div className="relative">
-            <Textarea
-              ref={inputRef}
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={`在${modeConfig[currentMode].label}模式下提问...`}
-              className="pr-10 min-h-[60px] max-h-[120px] text-sm resize-none"
-              disabled={isLoading}
-            />
-            <Button
-              size="sm"
-              onClick={handleSend}
-              disabled={!inputText.trim() || isLoading}
-              className="absolute right-2 bottom-2 h-7 w-7 p-0"
-            >
-              <Send className="w-3.5 h-3.5" />
-            </Button>
-          </div>
+      {/* 输入区域 */}
+      <div className="p-3 border-t border-gray-200">
+        <div className="relative">
+          <textarea
+            ref={inputRef}
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={`在${modeConfig[currentMode].label}模式下提问...`}
+            className="w-full pr-10 min-h-[60px] max-h-[120px] text-sm p-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            disabled={isLoading}
+          />
+          <button
+            onClick={handleSend}
+            disabled={!inputText.trim() || isLoading}
+            className="absolute right-2 bottom-2 p-1.5 bg-indigo-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-indigo-700"
+          >
+            <Send className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
-    </TooltipProvider>
+    </div>
   );
 }
 
@@ -340,9 +317,9 @@ function MessageBubble({ message, onAddToChecklist, onCreateCard }: MessageBubbl
         {message.context_anchors.length > 0 && (
           <div className="flex flex-wrap gap-1 mb-1">
             {message.context_anchors.map((anchor, i) => (
-              <Badge key={i} variant="outline" className="text-xs opacity-70">
+              <span key={i} className="text-xs px-1.5 py-0.5 rounded bg-white/20">
                 锚点 #{i + 1}
-              </Badge>
+              </span>
             ))}
           </div>
         )}
@@ -364,30 +341,22 @@ function MessageBubble({ message, onAddToChecklist, onCreateCard }: MessageBubbl
         {!isUser && showActions && (
           <div className="flex items-center gap-1">
             {onAddToChecklist && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => onAddToChecklist(message.content)}
-                    className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
-                  >
-                    <CheckSquare className="w-3 h-3" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>加入清单</TooltipContent>
-              </Tooltip>
+              <button
+                onClick={() => onAddToChecklist(message.content)}
+                className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+                title="加入清单"
+              >
+                <CheckSquare className="w-3 h-3" />
+              </button>
             )}
             {onCreateCard && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => onCreateCard(message.content)}
-                    className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
-                  >
-                    <FileText className="w-3 h-3" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>生成卡片</TooltipContent>
-              </Tooltip>
+              <button
+                onClick={() => onCreateCard(message.content)}
+                className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+                title="生成卡片"
+              >
+                <FileText className="w-3 h-3" />
+              </button>
             )}
           </div>
         )}
@@ -395,4 +364,3 @@ function MessageBubble({ message, onAddToChecklist, onCreateCard }: MessageBubbl
     </div>
   );
 }
-

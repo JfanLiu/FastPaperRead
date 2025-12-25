@@ -11,9 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { Button, Badge } from '@/components/common';
 import { enhanceApiExtended } from '@/lib/api';
 import type { QuoteSnippet } from '@/types';
 
@@ -78,7 +76,7 @@ export function QuoteSnippetPanel({
         )}
       </div>
 
-      <ScrollArea className="flex-1 p-4">
+      <div className="flex-1 p-4 overflow-y-auto">
         {/* 原文展示 */}
         <div className="mb-4">
           <div className="text-xs font-medium text-gray-500 mb-1">选中文本</div>
@@ -202,7 +200,7 @@ export function QuoteSnippetPanel({
             {/* 重新生成按钮 */}
             <Button
               onClick={handleGenerate}
-              variant="outline"
+              variant="secondary"
               disabled={isLoading}
               className="w-full"
             >
@@ -217,8 +215,7 @@ export function QuoteSnippetPanel({
             </Button>
           </div>
         )}
-      </ScrollArea>
+      </div>
     </div>
   );
 }
-

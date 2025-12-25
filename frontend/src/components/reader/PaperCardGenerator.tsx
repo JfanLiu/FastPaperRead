@@ -15,10 +15,7 @@ import {
   Download,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Textarea } from '@/components/ui/textarea';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { Button, Badge } from '@/components/common';
 import { enhanceApiExtended, cardApi } from '@/lib/api';
 import type { PaperCardFull, Card } from '@/types';
 
@@ -64,7 +61,6 @@ export function PaperCardGenerator({
     
     setIsSaving(true);
     try {
-      // 创建一个 paper 类型的卡片
       const cardData = {
         paper_id: paperId,
         type: 'paper' as const,
@@ -162,7 +158,7 @@ ${result.key_takeaways?.map((t, i) => `${i + 1}. ${t}`).join('\n') || ''}`;
         </div>
       </div>
 
-      <ScrollArea className="flex-1 p-4">
+      <div className="flex-1 p-4 overflow-y-auto">
         {/* 初始状态 - 生成按钮 */}
         {!result && !isLoading && (
           <div className="flex flex-col items-center justify-center py-8">
@@ -199,10 +195,10 @@ ${result.key_takeaways?.map((t, i) => `${i + 1}. ${t}`).join('\n') || ''}`;
             <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-200">
               <div className="text-xs font-medium text-indigo-600 mb-1">一句话总结</div>
               {isEditing ? (
-                <Textarea
+                <textarea
                   value={editedResult?.one_line_summary || ''}
                   onChange={(e) => setEditedResult(prev => prev ? { ...prev, one_line_summary: e.target.value } : null)}
-                  className="text-sm"
+                  className="w-full text-sm p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               ) : (
                 <p className="text-sm text-indigo-900 leading-relaxed font-medium">
@@ -220,7 +216,7 @@ ${result.key_takeaways?.map((t, i) => `${i + 1}. ${t}`).join('\n') || ''}`;
               {isEditing ? (
                 <div className="space-y-2">
                   {editedResult?.contributions.map((contribution, index) => (
-                    <Textarea
+                    <textarea
                       key={index}
                       value={contribution}
                       onChange={(e) => {
@@ -228,7 +224,7 @@ ${result.key_takeaways?.map((t, i) => `${i + 1}. ${t}`).join('\n') || ''}`;
                         newContributions[index] = e.target.value;
                         setEditedResult(prev => prev ? { ...prev, contributions: newContributions } : null);
                       }}
-                      className="text-sm"
+                      className="w-full text-sm p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     />
                   ))}
                 </div>
@@ -253,7 +249,7 @@ ${result.key_takeaways?.map((t, i) => `${i + 1}. ${t}`).join('\n') || ''}`;
               {isEditing ? (
                 <div className="space-y-2">
                   {editedResult?.limitations.map((limitation, index) => (
-                    <Textarea
+                    <textarea
                       key={index}
                       value={limitation}
                       onChange={(e) => {
@@ -261,7 +257,7 @@ ${result.key_takeaways?.map((t, i) => `${i + 1}. ${t}`).join('\n') || ''}`;
                         newLimitations[index] = e.target.value;
                         setEditedResult(prev => prev ? { ...prev, limitations: newLimitations } : null);
                       }}
-                      className="text-sm"
+                      className="w-full text-sm p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     />
                   ))}
                 </div>
@@ -281,10 +277,10 @@ ${result.key_takeaways?.map((t, i) => `${i + 1}. ${t}`).join('\n') || ''}`;
             <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
               <div className="text-xs font-medium text-blue-600 mb-1">适用范围</div>
               {isEditing ? (
-                <Textarea
+                <textarea
                   value={editedResult?.applicable_scope || ''}
                   onChange={(e) => setEditedResult(prev => prev ? { ...prev, applicable_scope: e.target.value } : null)}
-                  className="text-sm"
+                  className="w-full text-sm p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               ) : (
                 <p className="text-sm text-blue-900 leading-relaxed">
@@ -297,10 +293,10 @@ ${result.key_takeaways?.map((t, i) => `${i + 1}. ${t}`).join('\n') || ''}`;
             <div className="p-3 bg-red-50 rounded-lg border border-red-200">
               <div className="text-xs font-medium text-red-600 mb-1">复现风险</div>
               {isEditing ? (
-                <Textarea
+                <textarea
                   value={editedResult?.repro_risk || ''}
                   onChange={(e) => setEditedResult(prev => prev ? { ...prev, repro_risk: e.target.value } : null)}
-                  className="text-sm"
+                  className="w-full text-sm p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               ) : (
                 <p className="text-sm text-red-900 leading-relaxed">
@@ -315,7 +311,7 @@ ${result.key_takeaways?.map((t, i) => `${i + 1}. ${t}`).join('\n') || ''}`;
                 <div className="text-xs font-medium text-gray-700 mb-2">关键要点</div>
                 <div className="flex flex-wrap gap-1">
                   {displayResult.key_takeaways.map((takeaway, index) => (
-                    <Badge key={index} variant="outline" className="text-xs">
+                    <Badge key={index} variant="secondary" size="sm">
                       {takeaway}
                     </Badge>
                   ))}
@@ -336,7 +332,7 @@ ${result.key_takeaways?.map((t, i) => `${i + 1}. ${t}`).join('\n') || ''}`;
                     保存卡片
                   </Button>
                   <Button
-                    variant="outline"
+                    variant="secondary"
                     onClick={() => {
                       setEditedResult(result);
                       setIsEditing(false);
@@ -347,7 +343,7 @@ ${result.key_takeaways?.map((t, i) => `${i + 1}. ${t}`).join('\n') || ''}`;
                 </>
               ) : (
                 <>
-                  <Button onClick={handleGenerate} variant="outline" disabled={isLoading} className="flex-1">
+                  <Button onClick={handleGenerate} variant="secondary" disabled={isLoading} className="flex-1">
                     重新生成
                   </Button>
                   <Button onClick={handleSave} disabled={isSaving}>
@@ -363,8 +359,7 @@ ${result.key_takeaways?.map((t, i) => `${i + 1}. ${t}`).join('\n') || ''}`;
             </div>
           </div>
         )}
-      </ScrollArea>
+      </div>
     </div>
   );
 }
-

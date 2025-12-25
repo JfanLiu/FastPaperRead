@@ -24,13 +24,7 @@ import {
   Copy,
   Check,
 } from 'lucide-react';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { Button, Badge } from '@/components/common';
 
 interface StructuredViewProps {
   anchors: Anchor[];
@@ -507,30 +501,35 @@ function MethodFlowBlock({ result, onExtractToChecklist, onClose }: MethodFlowBl
         
         {/* Steps */}
         {result.steps && result.steps.length > 0 && (
-          <Collapsible open={stepsExpanded} onOpenChange={setStepsExpanded}>
-            <CollapsibleTrigger className="flex items-center gap-1 text-xs font-medium text-gray-700 hover:text-indigo-600">
+          <div>
+            <button
+              onClick={() => setStepsExpanded(!stepsExpanded)}
+              className="flex items-center gap-1 text-xs font-medium text-gray-700 hover:text-indigo-600"
+            >
               {stepsExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
               方法步骤 ({result.steps.length})
-            </CollapsibleTrigger>
-            <CollapsibleContent className="mt-2 space-y-2">
-              {result.steps.map((step, index) => (
-                <div key={index} className="flex gap-2 p-2 bg-gray-50 rounded text-xs">
-                  <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center flex-shrink-0 text-[10px]">
-                    {step.step}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-gray-800">{step.name}</div>
-                    <div className="text-gray-500 mt-0.5">{step.description}</div>
-                    {step.inputs && step.inputs.length > 0 && (
-                      <div className="text-gray-400 mt-1">
-                        <span className="font-medium">输入:</span> {step.inputs.join(', ')}
-                      </div>
-                    )}
+            </button>
+            {stepsExpanded && (
+              <div className="mt-2 space-y-2">
+                {result.steps.map((step, index) => (
+                  <div key={index} className="flex gap-2 p-2 bg-gray-50 rounded text-xs">
+                    <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center flex-shrink-0 text-[10px]">
+                      {step.step}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-gray-800">{step.name}</div>
+                      <div className="text-gray-500 mt-0.5">{step.description}</div>
+                      {step.inputs && step.inputs.length > 0 && (
+                        <div className="text-gray-400 mt-1">
+                          <span className="font-medium">输入:</span> {step.inputs.join(', ')}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </CollapsibleContent>
-          </Collapsible>
+                ))}
+              </div>
+            )}
+          </div>
         )}
         
         {/* Innovations */}
@@ -626,24 +625,29 @@ function ExperimentSetupBlock({ result, onExtractToChecklist, onClose }: Experim
       <div className="p-3 space-y-3 max-h-[300px] overflow-y-auto">
         {/* Datasets */}
         {result.datasets && result.datasets.length > 0 && (
-          <Collapsible open={datasetsExpanded} onOpenChange={setDatasetsExpanded}>
-            <CollapsibleTrigger className="flex items-center gap-1 text-xs font-medium text-gray-700 hover:text-emerald-600">
+          <div>
+            <button
+              onClick={() => setDatasetsExpanded(!datasetsExpanded)}
+              className="flex items-center gap-1 text-xs font-medium text-gray-700 hover:text-emerald-600"
+            >
               {datasetsExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
               数据集 ({result.datasets.length})
-            </CollapsibleTrigger>
-            <CollapsibleContent className="mt-2 space-y-2">
-              {result.datasets.map((ds, index) => (
-                <div key={index} className="p-2 bg-emerald-50 rounded text-xs">
-                  <div className="font-medium text-emerald-800">{ds.name}</div>
-                  <div className="text-gray-600 mt-0.5">{ds.description}</div>
-                  <div className="flex gap-3 mt-1 text-gray-500">
-                    {ds.size && <span>规模: {ds.size}</span>}
-                    {ds.split && <span>划分: {ds.split}</span>}
+            </button>
+            {datasetsExpanded && (
+              <div className="mt-2 space-y-2">
+                {result.datasets.map((ds, index) => (
+                  <div key={index} className="p-2 bg-emerald-50 rounded text-xs">
+                    <div className="font-medium text-emerald-800">{ds.name}</div>
+                    <div className="text-gray-600 mt-0.5">{ds.description}</div>
+                    <div className="flex gap-3 mt-1 text-gray-500">
+                      {ds.size && <span>规模: {ds.size}</span>}
+                      {ds.split && <span>划分: {ds.split}</span>}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </CollapsibleContent>
-          </Collapsible>
+                ))}
+              </div>
+            )}
+          </div>
         )}
         
         {/* Baselines */}
@@ -676,22 +680,27 @@ function ExperimentSetupBlock({ result, onExtractToChecklist, onClose }: Experim
         
         {/* Hyperparameters */}
         {result.hyperparameters && result.hyperparameters.length > 0 && (
-          <Collapsible open={paramsExpanded} onOpenChange={setParamsExpanded}>
-            <CollapsibleTrigger className="flex items-center gap-1 text-xs font-medium text-gray-700 hover:text-emerald-600">
+          <div>
+            <button
+              onClick={() => setParamsExpanded(!paramsExpanded)}
+              className="flex items-center gap-1 text-xs font-medium text-gray-700 hover:text-emerald-600"
+            >
               {paramsExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
               超参数 ({result.hyperparameters.length})
-            </CollapsibleTrigger>
-            <CollapsibleContent className="mt-2">
-              <div className="grid grid-cols-2 gap-1 text-xs">
-                {result.hyperparameters.map((param, index) => (
-                  <div key={index} className="flex justify-between p-1.5 bg-gray-50 rounded">
-                    <span className="font-mono text-gray-600">{param.name}</span>
-                    <span className="font-mono text-indigo-600">{param.value}</span>
-                  </div>
-                ))}
+            </button>
+            {paramsExpanded && (
+              <div className="mt-2">
+                <div className="grid grid-cols-2 gap-1 text-xs">
+                  {result.hyperparameters.map((param, index) => (
+                    <div key={index} className="flex justify-between p-1.5 bg-gray-50 rounded">
+                      <span className="font-mono text-gray-600">{param.name}</span>
+                      <span className="font-mono text-indigo-600">{param.value}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </CollapsibleContent>
-          </Collapsible>
+            )}
+          </div>
         )}
         
         {/* Training Details */}

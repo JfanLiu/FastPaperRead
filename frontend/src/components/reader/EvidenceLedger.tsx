@@ -18,29 +18,7 @@ import {
   HelpCircle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
+import { Button, Badge } from '@/components/common';
 import { evidenceLedgerApi, cardApi } from '@/lib/api';
 import type { EvidenceLedger as EvidenceLedgerType, Claim } from '@/types';
 
@@ -51,9 +29,9 @@ interface EvidenceLedgerProps {
 }
 
 const strengthColors = {
-  strong: 'bg-green-100 text-green-700 border-green-200',
-  medium: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-  weak: 'bg-red-100 text-red-700 border-red-200',
+  strong: 'bg-green-100 text-green-700',
+  medium: 'bg-yellow-100 text-yellow-700',
+  weak: 'bg-red-100 text-red-700',
 };
 
 const strengthLabels = {
@@ -102,7 +80,6 @@ export function EvidenceLedger({ paperId, onAnchorClick, className }: EvidenceLe
     try {
       const response = await evidenceLedgerApi.generate(paperId, force);
       setLedger(response.evidence_ledger);
-      // 自动展开第一个
       if (response.evidence_ledger.claims.length > 0) {
         setExpandedClaims(new Set([response.evidence_ledger.claims[0].id]));
       }
@@ -210,7 +187,6 @@ export function EvidenceLedger({ paperId, onAnchorClick, className }: EvidenceLe
   const convertToCard = async (claim: Claim) => {
     try {
       const response = await evidenceLedgerApi.claimToCard(paperId, claim.id);
-      // 使用卡片数据创建卡片
       await cardApi.create(response.card_data);
       alert('已创建 EvidenceCard');
     } catch (error) {
@@ -225,147 +201,140 @@ export function EvidenceLedger({ paperId, onAnchorClick, className }: EvidenceLe
   }, [isOpen, paperId]);
 
   return (
-    <TooltipProvider>
-      <div className={cn('border-t border-gray-200', className)}>
-        {/* Header - 可折叠 */}
-        <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-          <CollapsibleTrigger asChild>
-            <button className="w-full flex items-center justify-between p-3 hover:bg-gray-50 transition-colors">
-              <div className="flex items-center gap-2">
-                <Shield className="w-4 h-4 text-indigo-600" />
-                <span className="font-medium text-sm text-gray-800">主张-证据台账</span>
-                {ledger && (
-                  <Badge variant="outline" className="text-xs">
-                    {ledger.claims.length} 条主张
-                  </Badge>
-                )}
-              </div>
-              {isOpen ? (
-                <ChevronUp className="w-4 h-4 text-gray-500" />
+    <div className={cn('border-t border-gray-200', className)}>
+      {/* Header - 可折叠 */}
+      <button 
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between p-3 hover:bg-gray-50 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <Shield className="w-4 h-4 text-indigo-600" />
+          <span className="font-medium text-sm text-gray-800">主张-证据台账</span>
+          {ledger && (
+            <Badge variant="secondary" size="sm">
+              {ledger.claims.length} 条主张
+            </Badge>
+          )}
+        </div>
+        {isOpen ? (
+          <ChevronUp className="w-4 h-4 text-gray-500" />
+        ) : (
+          <ChevronDown className="w-4 h-4 text-gray-500" />
+        )}
+      </button>
+
+      {isOpen && (
+        <div className="px-3 pb-3">
+          {/* 工具栏 */}
+          <div className="flex items-center gap-2 mb-3">
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => generateLedger(false)}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
               ) : (
-                <ChevronDown className="w-4 h-4 text-gray-500" />
+                <Sparkles className="w-3 h-3 mr-1" />
               )}
-            </button>
-          </CollapsibleTrigger>
+              {ledger ? '重新生成' : '生成台账'}
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setIsAddingClaim(true)}
+            >
+              <Plus className="w-3 h-3 mr-1" />
+              添加主张
+            </Button>
+          </div>
 
-          <CollapsibleContent>
-            <div className="px-3 pb-3">
-              {/* 工具栏 */}
-              <div className="flex items-center gap-2 mb-3">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => generateLedger(false)}
-                  disabled={isLoading}
-                  className="text-xs"
-                >
-                  {isLoading ? (
-                    <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                  ) : (
-                    <Sparkles className="w-3 h-3 mr-1" />
-                  )}
-                  {ledger ? '重新生成' : '生成台账'}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setIsAddingClaim(true)}
-                  className="text-xs"
-                >
-                  <Plus className="w-3 h-3 mr-1" />
-                  添加主张
-                </Button>
+          {/* 总体评估 */}
+          {ledger && (
+            <div className="mb-3 p-2 bg-gray-50 rounded-lg">
+              <div className="flex items-center gap-2 text-xs text-gray-600">
+                <span>整体证据质量:</span>
+                <span className={cn('px-2 py-0.5 rounded text-xs font-medium', strengthColors[ledger.overall_evidence_quality])}>
+                  {strengthLabels[ledger.overall_evidence_quality]}
+                </span>
               </div>
-
-              {/* 总体评估 */}
-              {ledger && (
-                <div className="mb-3 p-2 bg-gray-50 rounded-lg">
-                  <div className="flex items-center gap-2 text-xs text-gray-600">
-                    <span>整体证据质量:</span>
-                    <Badge className={cn('text-xs', strengthColors[ledger.overall_evidence_quality])}>
-                      {strengthLabels[ledger.overall_evidence_quality]}
-                    </Badge>
-                  </div>
-                  {ledger.key_assumptions.length > 0 && (
-                    <div className="mt-2 text-xs text-gray-500">
-                      <span className="font-medium">关键假设:</span>
-                      <ul className="list-disc list-inside mt-1">
-                        {ledger.key_assumptions.map((a, i) => (
-                          <li key={i}>{a}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
+              {ledger.key_assumptions.length > 0 && (
+                <div className="mt-2 text-xs text-gray-500">
+                  <span className="font-medium">关键假设:</span>
+                  <ul className="list-disc list-inside mt-1">
+                    {ledger.key_assumptions.map((a, i) => (
+                      <li key={i}>{a}</li>
+                    ))}
+                  </ul>
                 </div>
               )}
-
-              {/* 主张列表 */}
-              <ScrollArea className="max-h-[400px]">
-                <div className="space-y-2">
-                  {/* 添加新主张 */}
-                  {isAddingClaim && (
-                    <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-200">
-                      <Textarea
-                        value={newClaimText}
-                        onChange={(e) => setNewClaimText(e.target.value)}
-                        placeholder="输入新主张..."
-                        className="text-sm min-h-[60px] mb-2"
-                      />
-                      <div className="flex gap-2">
-                        <Button size="sm" onClick={addClaim} className="text-xs">
-                          <Check className="w-3 h-3 mr-1" />
-                          添加
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => setIsAddingClaim(false)} className="text-xs">
-                          <X className="w-3 h-3 mr-1" />
-                          取消
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* 加载状态 */}
-                  {isLoading && (
-                    <div className="flex flex-col items-center justify-center py-8">
-                      <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
-                      <p className="mt-2 text-sm text-gray-500">正在分析论文主张...</p>
-                    </div>
-                  )}
-
-                  {/* 空状态 */}
-                  {!isLoading && !ledger && (
-                    <div className="text-center py-6 text-gray-500">
-                      <Target className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                      <p className="text-sm">点击"生成台账"自动提取论文主张</p>
-                    </div>
-                  )}
-
-                  {/* 主张卡片 */}
-                  {ledger?.claims.map((claim) => (
-                    <ClaimItem
-                      key={claim.id}
-                      claim={claim}
-                      isExpanded={expandedClaims.has(claim.id)}
-                      isEditing={editingClaimId === claim.id}
-                      editText={editText}
-                      onToggleExpand={() => toggleClaimExpand(claim.id)}
-                      onStartEdit={() => startEdit(claim)}
-                      onSaveEdit={() => saveEdit(claim.id)}
-                      onCancelEdit={() => setEditingClaimId(null)}
-                      onEditTextChange={setEditText}
-                      onUpdateStrength={(s) => updateStrength(claim.id, s)}
-                      onDelete={() => deleteClaim(claim.id)}
-                      onConvertToCard={() => convertToCard(claim)}
-                      onAnchorClick={onAnchorClick}
-                    />
-                  ))}
-                </div>
-              </ScrollArea>
             </div>
-          </CollapsibleContent>
-        </Collapsible>
-      </div>
-    </TooltipProvider>
+          )}
+
+          {/* 主张列表 */}
+          <div className="max-h-[400px] overflow-y-auto space-y-2">
+            {/* 添加新主张 */}
+            {isAddingClaim && (
+              <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-200">
+                <textarea
+                  value={newClaimText}
+                  onChange={(e) => setNewClaimText(e.target.value)}
+                  placeholder="输入新主张..."
+                  className="w-full text-sm min-h-[60px] mb-2 p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={addClaim}>
+                    <Check className="w-3 h-3 mr-1" />
+                    添加
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => setIsAddingClaim(false)}>
+                    <X className="w-3 h-3 mr-1" />
+                    取消
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* 加载状态 */}
+            {isLoading && (
+              <div className="flex flex-col items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
+                <p className="mt-2 text-sm text-gray-500">正在分析论文主张...</p>
+              </div>
+            )}
+
+            {/* 空状态 */}
+            {!isLoading && !ledger && (
+              <div className="text-center py-6 text-gray-500">
+                <Target className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                <p className="text-sm">点击"生成台账"自动提取论文主张</p>
+              </div>
+            )}
+
+            {/* 主张卡片 */}
+            {ledger?.claims.map((claim) => (
+              <ClaimItem
+                key={claim.id}
+                claim={claim}
+                isExpanded={expandedClaims.has(claim.id)}
+                isEditing={editingClaimId === claim.id}
+                editText={editText}
+                onToggleExpand={() => toggleClaimExpand(claim.id)}
+                onStartEdit={() => startEdit(claim)}
+                onSaveEdit={() => saveEdit(claim.id)}
+                onCancelEdit={() => setEditingClaimId(null)}
+                onEditTextChange={setEditText}
+                onUpdateStrength={(s) => updateStrength(claim.id, s)}
+                onDelete={() => deleteClaim(claim.id)}
+                onConvertToCard={() => convertToCard(claim)}
+                onAnchorClick={onAnchorClick}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -411,17 +380,17 @@ function ClaimItem({
         <div className="flex-1 min-w-0">
           {isEditing ? (
             <div onClick={(e) => e.stopPropagation()}>
-              <Textarea
+              <textarea
                 value={editText}
                 onChange={(e) => onEditTextChange(e.target.value)}
-                className="text-sm min-h-[60px]"
+                className="w-full text-sm min-h-[60px] p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
               <div className="flex gap-2 mt-2">
-                <Button size="sm" onClick={onSaveEdit} className="text-xs">
+                <Button size="sm" onClick={onSaveEdit}>
                   <Check className="w-3 h-3 mr-1" />
                   保存
                 </Button>
-                <Button size="sm" variant="outline" onClick={onCancelEdit} className="text-xs">
+                <Button size="sm" variant="secondary" onClick={onCancelEdit}>
                   取消
                 </Button>
               </div>
@@ -431,9 +400,9 @@ function ClaimItem({
           )}
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
-          <Badge className={cn('text-xs', strengthColors[claim.strength])}>
+          <span className={cn('px-2 py-0.5 rounded text-xs font-medium', strengthColors[claim.strength])}>
             {strengthLabels[claim.strength]}
-          </Badge>
+          </span>
           {isExpanded ? (
             <ChevronUp className="w-4 h-4 text-gray-400" />
           ) : (
@@ -448,9 +417,9 @@ function ClaimItem({
           {/* 不确定性标签 */}
           <div className="flex items-center gap-2 mt-2">
             <span className="text-xs text-gray-500">不确定性:</span>
-            <Badge className={cn('text-xs', uncertaintyColors[claim.uncertainty])}>
+            <span className={cn('px-2 py-0.5 rounded text-xs', uncertaintyColors[claim.uncertainty])}>
               {uncertaintyLabels[claim.uncertainty]}
-            </Badge>
+            </span>
           </div>
 
           {/* 证据摘要 */}
@@ -511,52 +480,44 @@ function ClaimItem({
 
           {/* 操作按钮 */}
           <div className="flex items-center gap-2 mt-3 pt-2 border-t border-gray-200">
-            <Select
+            <select
               value={claim.strength}
-              onValueChange={(v) => onUpdateStrength(v as 'strong' | 'medium' | 'weak')}
+              onChange={(e) => onUpdateStrength(e.target.value as 'strong' | 'medium' | 'weak')}
+              className="text-xs px-2 py-1 border border-gray-300 rounded"
             >
-              <SelectTrigger className="w-24 h-7 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="strong">强</SelectItem>
-                <SelectItem value="medium">中</SelectItem>
-                <SelectItem value="weak">弱</SelectItem>
-              </SelectContent>
-            </Select>
+              <option value="strong">强</option>
+              <option value="medium">中</option>
+              <option value="weak">弱</option>
+            </select>
 
             <div className="flex-1" />
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button size="sm" variant="ghost" onClick={onStartEdit} className="h-7 w-7 p-0">
-                  <Edit2 className="w-3 h-3" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>编辑</TooltipContent>
-            </Tooltip>
+            <button
+              onClick={onStartEdit}
+              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
+              title="编辑"
+            >
+              <Edit2 className="w-3 h-3" />
+            </button>
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button size="sm" variant="ghost" onClick={onConvertToCard} className="h-7 w-7 p-0">
-                  <FileText className="w-3 h-3" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>转为卡片</TooltipContent>
-            </Tooltip>
+            <button
+              onClick={onConvertToCard}
+              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
+              title="转为卡片"
+            >
+              <FileText className="w-3 h-3" />
+            </button>
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button size="sm" variant="ghost" onClick={onDelete} className="h-7 w-7 p-0 text-red-500 hover:text-red-600">
-                  <Trash2 className="w-3 h-3" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>删除</TooltipContent>
-            </Tooltip>
+            <button
+              onClick={onDelete}
+              className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded"
+              title="删除"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
           </div>
         </div>
       )}
     </div>
   );
 }
-
