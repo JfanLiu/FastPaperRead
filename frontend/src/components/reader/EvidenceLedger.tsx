@@ -26,6 +26,7 @@ interface EvidenceLedgerProps {
   paperId: string;
   onAnchorClick?: (anchorId: string) => void;
   className?: string;
+  defaultOpen?: boolean;
 }
 
 const strengthColors = {
@@ -52,8 +53,8 @@ const uncertaintyColors = {
   needs_verify: 'bg-orange-50 text-orange-600',
 };
 
-export function EvidenceLedger({ paperId, onAnchorClick, className }: EvidenceLedgerProps) {
-  const [isOpen, setIsOpen] = useState(false);
+export function EvidenceLedger({ paperId, onAnchorClick, className, defaultOpen }: EvidenceLedgerProps) {
+  const [isOpen, setIsOpen] = useState(!!defaultOpen);
   const [isLoading, setIsLoading] = useState(false);
   const [ledger, setLedger] = useState<EvidenceLedgerType | null>(null);
   const [expandedClaims, setExpandedClaims] = useState<Set<string>>(new Set());

@@ -16,6 +16,7 @@ import {
   ChatPanel,
   QuoteSnippetPanel,
   PaperCardGenerator,
+  MaterialsWorkspace,
 } from '@/components/reader';
 import { Button, Badge, Progress } from '@/components/common';
 import { cn } from '@/lib/utils';
@@ -55,6 +56,7 @@ const PDFViewer = dynamic(
 );
 
 type RightPanelTab = 'enhance' | 'notes' | 'checklist' | 'chat' | 'timer';
+type MainViewMode = 'pdf' | 'materials';
 
 interface ReadingSession {
   startTime: Date;
@@ -90,6 +92,7 @@ export default function ReadPage() {
   const [selectedAnchor, setSelectedAnchor] = useState<Anchor | null>(null);
   const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false);
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
+  const [mainViewMode, setMainViewMode] = useState<MainViewMode>('pdf');
   
   // 精读状态
   const [showRoutePlanner, setShowRoutePlanner] = useState(false);
@@ -181,6 +184,8 @@ export default function ReadPage() {
   const handleAnchorClick = (anchor: Anchor) => {
     setSelectedAnchor(anchor);
     setRightPanelTab('enhance');
+    setMainViewMode('pdf');
+    setRightPanelCollapsed(false);
     if (session) {
       setSession({
         ...session,
@@ -236,6 +241,7 @@ export default function ReadPage() {
     if (session?.lastTab) {
       setRightPanelTab(session.lastTab);
     }
+    setMainViewMode('pdf');
   };
 
   // 处理文本选择
@@ -481,6 +487,41 @@ export default function ReadPage() {
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Main Mode Tabs */}
+          <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-lg">
+            <button
+              onClick={() => {
+                setMainViewMode('pdf');
+                setLeftPanelCollapsed(false);
+              }}
+              className={cn(
+                'px-3 py-1.5 text-xs font-medium rounded-md transition-colors',
+                mainViewMode === 'pdf' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+              )}
+              title="原文阅读"
+            >
+              <BookOpen className="w-3.5 h-3.5 inline mr-1" />
+              原文
+            </button>
+            <button
+              onClick={() => {
+                setMainViewMode('materials');
+                setLeftPanelCollapsed(true);
+                setRightPanelCollapsed(true);
+                setSelectionPosition(null);
+                setSelectedText('');
+              }}
+              className={cn(
+                'px-3 py-1.5 text-xs font-medium rounded-md transition-colors',
+                mainViewMode === 'materials' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+              )}
+              title="粗读/精读材料工作台"
+            >
+              <FileText className="w-3.5 h-3.5 inline mr-1" />
+              材料
+            </button>
+          </div>
+
           {/* Progress */}
           <div className="flex items-center gap-2">
             <span className="text-sm text-gray-500">进度</span>
@@ -581,6 +622,28 @@ export default function ReadPage() {
 
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden">
+        {mainViewMode === 'materials' ? (
+          <div className="flex-1 overflow-hidden">
+            <div className="h-full overflow-y-auto p-4">
+              <MaterialsWorkspace
+                paperId={paperId}
+                paper={paper}
+                anchors={anchors}
+                currentRoute={currentRoute}
+                onOpenPdfAtAnchorId={(anchorId) => {
+                  const anchor = anchors.find(a => a.id === anchorId);
+                  if (anchor) {
+                    handleAnchorClick(anchor);
+                  } else {
+                    // 兜底：找不到锚点时也切回原文
+                    setMainViewMode('pdf');
+                  }
+                }}
+              />
+            </div>
+          </div>
+        ) : (
+          <>
         {/* Left Panel - Structured View (合并了大纲功能) */}
         <div
           className={cn(
@@ -597,6 +660,7 @@ export default function ReadPage() {
                 completedSections={session?.completedSections || new Set()}
                 onSectionClick={handleAnchorClick}
                 onMarkComplete={handleMarkSectionComplete}
+                onCollapse={() => setLeftPanelCollapsed(true)}
                 onExtractToChecklist={(anchor) => {
                   handleAddToChecklist({
                     group: 'training',
@@ -885,6 +949,8 @@ export default function ReadPage() {
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
+        )}
+          </>
         )}
       </div>
 

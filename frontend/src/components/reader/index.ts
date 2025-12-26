@@ -18,3 +18,4 @@ export { EvidenceLedger } from './EvidenceLedger';
 export { ChatPanel } from './ChatPanel';
 export { QuoteSnippetPanel } from './QuoteSnippetPanel';
 export { PaperCardGenerator } from './PaperCardGenerator';
+export { MaterialsWorkspace } from './MaterialsWorkspace';
