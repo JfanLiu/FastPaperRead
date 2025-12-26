@@ -842,7 +842,7 @@ export function MaterialsWorkspace({
                           </div>
                         </div>
                       ) : (
-                        <div className="mt-2 text-sm text-gray-500">点击上方“生成章节摘要”批量生成。</div>
+                        <div className="mt-2 text-sm text-gray-500">点击上方「一键生成」获取粗读包（含章节摘要）。</div>
                       )}
                     </div>
                   );
@@ -1179,7 +1179,7 @@ export function MaterialsWorkspace({
                           {s.strict}
                         </div>
                       ) : (
-                        <div className="mt-2 text-sm text-gray-500">点击上方“一键生成精读包 / 生成严格摘要”批量生成。</div>
+                        <div className="mt-2 text-sm text-gray-500">点击上方「一键生成」获取精读包（含严格摘要）。</div>
                       )}
                     </div>
                   );
