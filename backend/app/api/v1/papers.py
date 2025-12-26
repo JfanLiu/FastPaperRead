@@ -5,11 +5,13 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, 
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from pydantic import BaseModel
 import os
 import uuid
 import shutil
 import httpx
 import logging
+import re
 
 from ...api.deps import get_db
 from ...crud import paper_crud
@@ -21,6 +23,11 @@ from ...core.metadata import enrich_paper_metadata
 
 logger = logging.getLogger("fastpaperread.api.papers")
 router = APIRouter()
+
+
+class PaperImportPayload(BaseModel):
+    """前端导入请求体兼容结构"""
+    pdf_url: Optional[str] = None
 
 
 @router.post("/upload", response_model=dict)
@@ -84,8 +91,9 @@ async def upload_pdf(
 
 @router.post("/import", response_model=dict)
 async def import_paper_from_url(
-    url: str,
     background_tasks: BackgroundTasks,
+    payload: Optional[PaperImportPayload] = None,
+    url: Optional[str] = Query(None, description="论文URL（兼容旧参数）"),
     db: Session = Depends(get_db)
 ):
     """
@@ -95,29 +103,48 @@ async def import_paper_from_url(
     - PDF直链
     - arXiv链接 (自动转换为PDF链接，自动获取元数据)
     - DOI链接 (自动获取元数据，尝试获取PDF)
+    - arXiv ID/DOI 字符串（自动补全URL）
     """
-    logger.info(f"[IMPORT] 开始导入论文: {url}")
+    # 兼容前端请求体字段 pdf_url 与查询参数 url
+    incoming_url = (payload.pdf_url if payload else None) or url
+    if not incoming_url:
+        raise HTTPException(status_code=400, detail="请提供 pdf_url 或 url 参数")
     
-    # 解析URL类型
+    # 归一化输入，自动判断 arXiv ID / DOI / URL
     source_type = "url"
-    pdf_url = url
+    normalized_url = incoming_url.strip()
+    pdf_url = normalized_url
+
+    arxiv_id_pattern = r"^\d{4}\.\d{4,5}(v\d+)?$"
+    is_http = normalized_url.startswith(("http://", "https://"))
     
-    if "arxiv.org" in url:
+    if re.match(arxiv_id_pattern, normalized_url):
         source_type = "arxiv"
-        # 转换arXiv链接为PDF链接
-        if "/abs/" in url:
-            pdf_url = url.replace("/abs/", "/pdf/") + ".pdf"
-        elif not url.endswith(".pdf"):
-            pdf_url = url + ".pdf"
-    elif "doi.org" in url:
+        normalized_url = f"https://arxiv.org/abs/{normalized_url}"
+        pdf_url = f"https://arxiv.org/pdf/{incoming_url.strip()}.pdf"
+    elif "arxiv.org" in normalized_url:
+        source_type = "arxiv"
+        if "/abs/" in normalized_url:
+            pdf_url = normalized_url.replace("/abs/", "/pdf/") + ".pdf"
+        elif not normalized_url.endswith(".pdf"):
+            pdf_url = normalized_url + ".pdf"
+    elif not is_http and "/" in normalized_url and " " not in normalized_url:
+        # 视为 DOI
         source_type = "doi"
-        # DOI需要特殊处理，暂时保留原链接
+        normalized_url = f"https://doi.org/{normalized_url}"
+        pdf_url = normalized_url
+    elif not is_http:
+        # 无 scheme 的一般 URL，补全 https
+        normalized_url = f"https://{normalized_url}"
+        pdf_url = normalized_url
+    
+    logger.info(f"[IMPORT] 开始导入论文: raw={incoming_url}, normalized={normalized_url}, source_type={source_type}")
     
     # 尝试获取元数据
     metadata = None
     try:
-        logger.info(f"[IMPORT] 获取元数据: source_type={source_type}, url={url}")
-        metadata = await enrich_paper_metadata(source_type, url)
+        logger.info(f"[IMPORT] 获取元数据: source_type={source_type}, url={normalized_url}")
+        metadata = await enrich_paper_metadata(source_type, normalized_url)
         if metadata:
             logger.info(f"[IMPORT] 元数据获取成功: title={metadata.get('title', '')[:50]}")
     except Exception as e:
@@ -144,9 +171,9 @@ async def import_paper_from_url(
     
     # 创建论文记录（使用元数据填充字段）
     paper_data = {
-        "title": f"Importing from {url}",
+        "title": f"Importing from {normalized_url}",
         "source_type": source_type,
-        "source_value": url,
+        "source_value": normalized_url,
         "pdf_path": file_path,
     }
     
