@@ -300,7 +300,7 @@ async def make_skim_decision(
     """
     做出阅读决策
     
-    - decision: deep_read / focused_read / skip / archive
+    - decision: deep_read / deepread / focused_read / skip / archive / queue
     """
     paper = paper_crud.get(db, paper_id)
     if not paper:
@@ -309,9 +309,11 @@ async def make_skim_decision(
     # 根据决策更新论文状态
     decision_to_status = {
         "deep_read": PaperStatus.SKIMMED,
+        "deepread": PaperStatus.SKIMMED,  # 兼容前端传参
         "focused_read": PaperStatus.SKIMMED,
         "skip": PaperStatus.ARCHIVED,
         "archive": PaperStatus.ARCHIVED,
+        "queue": PaperStatus.UNREAD,
     }
     
     new_status = decision_to_status.get(request.decision, PaperStatus.SKIMMED)
@@ -320,11 +322,29 @@ async def make_skim_decision(
     # 如果有质量评分，更新
     if request.quality_grade:
         paper = paper_crud.update(db, paper_id, quality_grade=request.quality_grade)
+
+    # 若选择加入待读队列，确保队列记录存在
+    queue_id = None
+    if request.decision == "queue":
+        queue_item = db.query(ReadingQueueModel).filter(
+            ReadingQueueModel.paper_id == paper_id
+        ).first()
+        if not queue_item:
+            queue_item = ReadingQueueModel(paper_id=paper_id, priority=0, note=request.notes)
+            db.add(queue_item)
+            db.commit()
+            db.refresh(queue_item)
+        else:
+            if request.notes is not None:
+                queue_item.note = request.notes
+                db.commit()
+        queue_id = queue_item.id
     
     return {
         "message": "决策已记录",
         "decision": request.decision,
-        "new_status": new_status.value
+        "new_status": new_status.value,
+        "queue_id": queue_id,
     }
 
 

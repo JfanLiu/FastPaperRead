@@ -20,7 +20,7 @@ class SkimCardResponse(BaseModel):
 
 class SkimDecisionRequest(BaseModel):
     """阅读决策请求"""
-    decision: str = Field(..., description="deep_read / focused_read / skip / archive")
+    decision: str = Field(..., description="deep_read / deepread / focused_read / skip / archive / queue")
     quality_grade: Optional[str] = Field(None, description="质量评分: A/B/C/D")
     notes: Optional[str] = Field(None, description="备注")
 
