@@ -344,43 +344,133 @@ export function PDFViewer({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  // 搜索功能
+  // 清除所有搜索高亮
+  const clearSearchHighlights = useCallback(() => {
+    const highlights = document.querySelectorAll('.pdf-search-highlight');
+    highlights.forEach(el => {
+      const parent = el.parentNode;
+      if (parent) {
+        parent.replaceChild(document.createTextNode(el.textContent || ''), el);
+        parent.normalize();
+      }
+    });
+  }, []);
+
+  // 在文本层中高亮搜索结果
+  const highlightSearchInTextLayer = useCallback((query: string, pageNum: number) => {
+    const pageContainer = containerRef.current?.querySelector(`[data-page-number="${pageNum}"]`);
+    if (!pageContainer) return [];
+    
+    const textLayer = pageContainer.querySelector('.react-pdf__Page__textContent');
+    if (!textLayer) return [];
+    
+    const results: { page: number; index: number; element: Element }[] = [];
+    const queryLower = query.toLowerCase();
+    
+    // 遍历文本层中的所有 span 元素
+    const spans = textLayer.querySelectorAll('span');
+    spans.forEach((span) => {
+      const text = span.textContent || '';
+      const textLower = text.toLowerCase();
+      
+      if (textLower.includes(queryLower)) {
+        // 找到匹配，高亮该 span
+        const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+        const parts = text.split(regex);
+        
+        if (parts.length > 1) {
+          span.innerHTML = '';
+          parts.forEach(part => {
+            if (part.toLowerCase() === queryLower) {
+              const mark = document.createElement('mark');
+              mark.className = 'pdf-search-highlight bg-yellow-300 text-black rounded px-0.5';
+              mark.textContent = part;
+              span.appendChild(mark);
+              results.push({ page: pageNum, index: results.length, element: mark });
+            } else {
+              span.appendChild(document.createTextNode(part));
+            }
+          });
+        }
+      }
+    });
+    
+    return results;
+  }, []);
+
+  // 搜索功能 - 真实文本搜索
   const handleSearch = useCallback(() => {
     if (!searchText.trim()) {
+      clearSearchHighlights();
       setSearchResults([]);
       return;
     }
     
-    // 简单的文本搜索模拟 - 在真实场景中需要使用PDF.js的findController
-    // 这里我们创建模拟结果
-    const mockResults: {page: number; index: number}[] = [];
+    // 清除之前的高亮
+    clearSearchHighlights();
     
-    // 假设在一些页面找到了结果
-    for (let i = 1; i <= Math.min(numPages, 5); i++) {
-      mockResults.push({ page: i, index: mockResults.length });
+    // 在所有已渲染的页面中搜索
+    const allResults: { page: number; index: number; element?: Element }[] = [];
+    
+    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+      const pageResults = highlightSearchInTextLayer(searchText, pageNum);
+      pageResults.forEach((result, idx) => {
+        allResults.push({
+          page: result.page,
+          index: allResults.length,
+          element: result.element,
+        });
+      });
     }
     
-    setSearchResults(mockResults);
+    setSearchResults(allResults.map(r => ({ page: r.page, index: r.index })));
     setCurrentSearchIndex(0);
     
-    if (mockResults.length > 0) {
-      setCurrentPage(mockResults[0].page);
+    if (allResults.length > 0) {
+      // 滚动到第一个结果
+      setCurrentPage(allResults[0].page);
+      setTimeout(() => {
+        const firstHighlight = document.querySelector('.pdf-search-highlight');
+        if (firstHighlight) {
+          firstHighlight.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          firstHighlight.classList.add('ring-2', 'ring-orange-500');
+        }
+      }, 100);
     }
-  }, [searchText, numPages]);
+  }, [searchText, numPages, clearSearchHighlights, highlightSearchInTextLayer]);
 
-  const goToNextSearchResult = () => {
+  // 导航到搜索结果
+  const goToSearchResult = useCallback((index: number) => {
+    // 移除之前的当前高亮标记
+    const prevCurrent = document.querySelector('.pdf-search-highlight.ring-2');
+    if (prevCurrent) {
+      prevCurrent.classList.remove('ring-2', 'ring-orange-500');
+    }
+    
+    // 找到新的当前结果并高亮
+    const highlights = document.querySelectorAll('.pdf-search-highlight');
+    if (highlights[index]) {
+      const currentHighlight = highlights[index];
+      currentHighlight.classList.add('ring-2', 'ring-orange-500');
+      currentHighlight.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, []);
+
+  const goToNextSearchResult = useCallback(() => {
     if (searchResults.length === 0) return;
     const nextIndex = (currentSearchIndex + 1) % searchResults.length;
     setCurrentSearchIndex(nextIndex);
     setCurrentPage(searchResults[nextIndex].page);
-  };
+    setTimeout(() => goToSearchResult(nextIndex), 100);
+  }, [searchResults, currentSearchIndex, goToSearchResult]);
 
-  const goToPrevSearchResult = () => {
+  const goToPrevSearchResult = useCallback(() => {
     if (searchResults.length === 0) return;
     const prevIndex = (currentSearchIndex - 1 + searchResults.length) % searchResults.length;
     setCurrentSearchIndex(prevIndex);
     setCurrentPage(searchResults[prevIndex].page);
-  };
+    setTimeout(() => goToSearchResult(prevIndex), 100);
+  }, [searchResults, currentSearchIndex, goToSearchResult]);
 
   // 键盘快捷键
   useEffect(() => {
@@ -694,6 +784,7 @@ export function PDFViewer({
           )}
           <button
             onClick={() => {
+              clearSearchHighlights();
               setShowSearch(false);
               setSearchText('');
               setSearchResults([]);
