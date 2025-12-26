@@ -11,6 +11,7 @@ import {
   Check,
   X,
   ExternalLink,
+  GraduationCap,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
