@@ -13,7 +13,15 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { Anchor, Paper, PaperCardFull, SectionSummaryLeveled, SkimCard as SkimCardType } from '@/types';
+import type {
+  Anchor,
+  Paper,
+  PaperCardFull,
+  SectionSummaryLeveled,
+  SkimCard as SkimCardType,
+  TeachingSkimPack,
+  TeachingSkimGroup,
+} from '@/types';
 import { Button, Badge } from '@/components/common';
 import { SkimCard } from '@/components/cards/SkimCard';
 import { ChecklistPanel } from './ChecklistPanel';
@@ -96,6 +104,8 @@ export function MaterialsWorkspace({
   const [keyFigures, setKeyFigures] = useState<KeyFigureItem[]>([]);
   const [figuresLoading, setFiguresLoading] = useState(false);
   const [skimError, setSkimError] = useState<string | null>(null);
+  const [teachingSkim, setTeachingSkim] = useState<TeachingSkimPack | null>(null);
+  const [teachingSkimLoading, setTeachingSkimLoading] = useState(false);
 
   // ========= 精读包（Deep Pack） =========
   const [paperCard, setPaperCard] = useState<PaperCardFull | null>(null);
@@ -308,6 +318,107 @@ export function MaterialsWorkspace({
     }
   }, [anchors, paper, scopedSections, tab]);
 
+  const buildAnchorCandidates = useCallback(() => {
+    // 尽量提供证据锚点，但控制体积：只给 section/figure/table/equation + 少量 paragraph
+    const candidates: {
+      anchor_id: string;
+      type?: string;
+      section?: string;
+      page?: number;
+      snippet?: string;
+    }[] = [];
+
+    const push = (a: Anchor, snippet?: string) => {
+      candidates.push({
+        anchor_id: a.id,
+        type: a.type,
+        section: a.section || a.text,
+        page: a.page,
+        snippet: (snippet || a.caption || a.text || '').slice(0, 160) || undefined,
+      });
+    };
+
+    const primary = anchors.filter(a => ['section', 'figure', 'table', 'equation'].includes(a.type || ''));
+    primary.slice(0, 120).forEach(a => push(a));
+
+    // 每个 scoped section 取 2 条 paragraph 作为“可引用证据”
+    for (const sectionName of scopedSections.slice(0, 20)) {
+      const ps = anchors
+        .filter(a => a.type === 'paragraph' && (a.section || '') === sectionName)
+        .slice(0, 2);
+      ps.forEach(a => push(a, a.text));
+    }
+
+    // 去重
+    const seen = new Set<string>();
+    return candidates.filter(c => {
+      if (seen.has(c.anchor_id)) return false;
+      seen.add(c.anchor_id);
+      return true;
+    }).slice(0, 160);
+  }, [anchors, scopedSections]);
+
+  const generateTeachingSkim = useCallback(async () => {
+    setTeachingSkimLoading(true);
+    setSkimError(null);
+    try {
+      // 依赖输入：skimCard + keyFigures + plain summaries
+      let ensuredSkim = skimCard;
+      if (!ensuredSkim) {
+        ensuredSkim = await skimApi.generate(paperId, false);
+        setSkimCard(ensuredSkim);
+      }
+
+      if (Object.keys(sectionSummaries).length === 0) {
+        await generateSectionSummaries('plain');
+      }
+
+      const route_scope =
+        currentRoute && currentRoute.length > 0
+          ? { type: 'route' as const, sections: currentRoute }
+          : { type: 'full' as const, sections: scopedSections };
+
+      const paper_meta = {
+        title: paper.title,
+        authors: paper.authors,
+        venue: paper.venue,
+        year: paper.year,
+      };
+
+      const section_summaries: Record<string, SectionSummaryLeveled> = {};
+      scopedSections.forEach(name => {
+        if (sectionSummaries[name]) section_summaries[name] = sectionSummaries[name];
+      });
+
+      const res = await enhanceApiExtended.generateTeachingSkim({
+        paper_id: paperId,
+        route_scope,
+        paper_meta,
+        skim_card: ensuredSkim as unknown as Record<string, unknown>,
+        key_figures: keyFigures as unknown as Record<string, unknown>[],
+        section_summaries: section_summaries as unknown as Record<string, unknown>,
+        evidence_anchor_candidates: buildAnchorCandidates(),
+      });
+
+      setTeachingSkim(res.teaching_skim);
+    } catch (e) {
+      console.error('生成教学粗读失败:', e);
+      setSkimError('生成教学粗读失败，请重试');
+    } finally {
+      setTeachingSkimLoading(false);
+    }
+  }, [
+    buildAnchorCandidates,
+    currentRoute,
+    generateSectionSummaries,
+    keyFigures,
+    paper,
+    paperId,
+    scopedSections,
+    sectionSummaries,
+    skimCard,
+  ]);
+
   const cancelSectionSummaries = useCallback(() => {
     cancelSummariesRef.current = true;
   }, []);
@@ -330,6 +441,16 @@ export function MaterialsWorkspace({
     loadChecklist();
     loadKeyFigures();
   }, [loadExistingSkim, loadChecklist, loadKeyFigures]);
+
+  const groupOrder: TeachingSkimGroup[] = ['why', 'insight', 'what', 'how', 'results', 'takeaways'];
+  const groupLabels: Record<TeachingSkimGroup, string> = {
+    why: 'Why（问题）',
+    insight: 'Insight（关键观察）',
+    what: 'What（核心方法）',
+    how: 'How（实现）',
+    results: 'Results（结果）',
+    takeaways: 'Takeaways（带走点）',
+  };
 
   return (
     <div className={cn('flex flex-col h-full', className)}>
@@ -391,6 +512,15 @@ export function MaterialsWorkspace({
                   </Button>
                   <Button
                     size="sm"
+                    onClick={generateTeachingSkim}
+                    disabled={teachingSkimLoading || summaryLoading}
+                    title="生成带读式教学粗读（结构化卡片集合）"
+                  >
+                    {teachingSkimLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <GraduationCap className="w-4 h-4 mr-2" />}
+                    生成教学粗读
+                  </Button>
+                  <Button
+                    size="sm"
                     variant="secondary"
                     onClick={() => generateSectionSummaries('plain')}
                     disabled={summaryLoading}
@@ -423,6 +553,145 @@ export function MaterialsWorkspace({
                 还没有粗读材料，点击上方“生成粗读包”即可自动产出（研究问题、贡献、证据强度、红旗、推荐章节）。
               </div>
             )}
+
+            {/* 教学粗读（结构化带读） */}
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium text-gray-900">教学粗读（带读稿 · 结构化）</div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    少而精、叙事连续（Why→Insight→What→How→Results→Takeaways），并自动生成可选探索方向（Next steps）。
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" onClick={generateTeachingSkim} disabled={teachingSkimLoading || summaryLoading}>
+                    {teachingSkimLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+                    {teachingSkim ? '重新生成' : '生成'}
+                  </Button>
+                </div>
+              </div>
+
+              {!teachingSkim ? (
+                <div className="mt-3 text-sm text-gray-600">
+                  还没有教学粗读。点击“生成”后会得到 6 张主线卡片 + 可选探索方向。
+                </div>
+              ) : (
+                <div className="mt-4 space-y-3">
+                  {groupOrder.map(g => {
+                    const card = teachingSkim.cards.find(c => c.group === g);
+                    if (!card) return null;
+                    return (
+                      <div key={g} className="border border-gray-200 rounded-lg p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-xs text-gray-500 mb-1">{groupLabels[g]}</div>
+                            <div className="font-medium text-gray-900">{card.title}</div>
+                            <div className="text-sm text-gray-700 mt-1">{card.one_liner}</div>
+                          </div>
+                          <div className="shrink-0 flex items-center gap-2">
+                            <Badge variant="secondary" size="sm">
+                              {card.confidence === 'from_text' ? '原文' : card.confidence === 'needs_verify' ? '待核对' : '推断'}
+                            </Badge>
+                          </div>
+                        </div>
+
+                        {card.key_points?.length > 0 && (
+                          <ul className="mt-2 space-y-1 text-sm text-gray-800">
+                            {card.key_points.map((p, idx) => (
+                              <li key={idx} className="flex gap-2">
+                                <span className="text-gray-400">-</span>
+                                <span className="flex-1">{p}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+
+                        {card.why_it_matters && (
+                          <div className="mt-2 p-2 bg-gray-50 rounded text-sm text-gray-700">
+                            {card.why_it_matters}
+                          </div>
+                        )}
+
+                        {card.evidence_anchors?.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {card.evidence_anchors.map(aid => (
+                              <button
+                                key={aid}
+                                className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                                onClick={() => onOpenPdfAtAnchorId?.(aid)}
+                                disabled={!onOpenPdfAtAnchorId}
+                                title="跳回原文锚点"
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                                证据
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {teachingSkim.tables?.length > 0 && (
+                    <div className="border border-gray-200 rounded-lg p-3">
+                      <div className="font-medium text-gray-900 mb-2">补充表格</div>
+                      <div className="space-y-3">
+                        {teachingSkim.tables.map(t => (
+                          <div key={t.id} className="border border-gray-200 rounded-md p-2">
+                            <div className="text-sm font-medium text-gray-800 mb-2">{t.title}</div>
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-sm">
+                                <thead>
+                                  <tr className="text-xs text-gray-500 border-b">
+                                    {t.columns.map((c, idx) => (
+                                      <th key={idx} className="text-left py-2 pr-3">{c}</th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {t.rows.map((row, ridx) => (
+                                    <tr key={ridx} className="border-b last:border-b-0">
+                                      {row.map((cell, cidx) => (
+                                        <td key={cidx} className="py-2 pr-3 text-gray-700">{cell}</td>
+                                      ))}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {teachingSkim.next_steps?.length > 0 && (
+                    <div className="border border-gray-200 rounded-lg p-3">
+                      <div className="font-medium text-gray-900 mb-2">可选探索方向（Next steps）</div>
+                      <div className="space-y-2">
+                        {teachingSkim.next_steps.map(ns => (
+                          <div key={ns.id} className="p-2 bg-amber-50 border border-amber-100 rounded-md">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="text-sm font-medium text-amber-900">{ns.title}</div>
+                              <Badge variant="warning" size="sm">{ns.estimated_time || ns.type}</Badge>
+                            </div>
+                            {ns.goal && <div className="text-sm text-amber-800 mt-1">{ns.goal}</div>}
+                            <div className="text-xs text-amber-700 mt-1">
+                              产物：{ns.deliverable || '—'}
+                            </div>
+                            {ns.inputs_required?.length > 0 && (
+                              <div className="text-xs text-amber-700 mt-1">
+                                需要：{ns.inputs_required.join('、')}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
 
             {/* 关键图表 */}
             <div className="bg-white border border-gray-200 rounded-xl p-4">

@@ -10,7 +10,13 @@ from pydantic import BaseModel
 from ...api.deps import get_db, get_enhancer
 from ...crud import paper_crud, anchor_crud
 from ...core.llm import ContentEnhancer
-from ...schemas.enhance import EnhanceRequest, EnhanceResponse
+from ...schemas.enhance import (
+    EnhanceRequest,
+    EnhanceResponse,
+    TeachingSkimGenerateRequest,
+    TeachingSkimGenerateResponse,
+    TeachingSkimPack,
+)
 from ...config import settings
 
 router = APIRouter()
@@ -177,6 +183,27 @@ async def enhance_content(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"增强失败: {str(e)}")
+
+
+@router.post("/teaching-skim", response_model=TeachingSkimGenerateResponse)
+async def generate_teaching_skim(
+    request: TeachingSkimGenerateRequest,
+    enhancer: ContentEnhancer = Depends(get_enhancer),
+):
+    """
+    生成教学粗读（Teaching Skim）结构化材料
+
+    设计目标：少而精、叙事连续、尽量带证据锚点、Next steps 可执行。
+    """
+    try:
+        payload = request.model_dump()
+        raw = await enhancer.generate_teaching_skim(payload)
+
+        # 尽量结构化校验；如果缺字段，交给 Pydantic 报错，便于前端提示
+        teaching = TeachingSkimPack(**raw)
+        return {"teaching_skim": teaching}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"教学粗读生成失败: {str(e)}")
 
 
 @router.post("/term/{anchor_id}", response_model=dict)

@@ -37,6 +37,46 @@ class ContentEnhancer:
             {"role": "user", "content": prompt}
         ])
         return self._parse_json_response(response)
+
+    async def generate_teaching_skim(self, payload: Dict[str, Any]) -> Dict:
+        """
+        生成教学粗读（Teaching Skim）结构化卡片集合
+
+        payload 应尽量包含：
+        - paper_meta
+        - skim_card
+        - key_figures
+        - section_summaries
+        - evidence_anchor_candidates
+        - paper_id, route_scope
+        """
+        try:
+            paper_meta_json = json.dumps(payload.get("paper_meta", {}), ensure_ascii=False)
+            skim_card_json = json.dumps(payload.get("skim_card", {}), ensure_ascii=False)
+            key_figures_json = json.dumps(payload.get("key_figures", []), ensure_ascii=False)
+            section_summaries_json = json.dumps(payload.get("section_summaries", {}), ensure_ascii=False)
+            anchor_candidates_json = json.dumps(payload.get("evidence_anchor_candidates", []), ensure_ascii=False)
+        except Exception:
+            paper_meta_json = "{}"
+            skim_card_json = "{}"
+            key_figures_json = "[]"
+            section_summaries_json = "{}"
+            anchor_candidates_json = "[]"
+
+        prompt = prompts.TEACHING_SKIM_PROMPT.format(
+            paper_meta_json=paper_meta_json,
+            skim_card_json=skim_card_json,
+            key_figures_json=key_figures_json,
+            section_summaries_json=section_summaries_json,
+            anchor_candidates_json=anchor_candidates_json,
+            paper_id=payload.get("paper_id", ""),
+        )
+
+        response = await self.llm.chat_completion([
+            {"role": "system", "content": "你是一个论文带读/教学讲解专家。"},
+            {"role": "user", "content": prompt}
+        ])
+        return self._parse_json_response(response)
     
     async def explain_term(self, term: str, context: str) -> Dict:
         """解释术语"""

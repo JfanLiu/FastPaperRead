@@ -22,6 +22,7 @@ import type {
   QuoteSnippet,
   SectionSummaryLeveled,
   PaperCardFull,
+  TeachingSkimPack,
 } from '@/types';
 import { apiLogger } from './logger';
 
@@ -614,6 +615,26 @@ export const enhanceApiExtended = {
   // 生成完整 PaperCard
   generatePaperCardFull: async (paperId: string): Promise<{ paper_card: PaperCardFull }> => {
     const res = await api.post(`/enhance/generate-paper-card/${paperId}`);
+    return res.data;
+  },
+
+  // 生成教学粗读（结构化带读）
+  generateTeachingSkim: async (payload: {
+    paper_id: string;
+    route_scope: { type: 'route' | 'full'; sections: string[] };
+    paper_meta: Record<string, unknown>;
+    skim_card: Record<string, unknown>;
+    key_figures: Record<string, unknown>[];
+    section_summaries: Record<string, unknown>;
+    evidence_anchor_candidates: {
+      anchor_id: string;
+      type?: string;
+      section?: string;
+      page?: number;
+      snippet?: string;
+    }[];
+  }): Promise<{ teaching_skim: TeachingSkimPack }> => {
+    const res = await api.post('/enhance/teaching-skim', payload);
     return res.data;
   },
 };

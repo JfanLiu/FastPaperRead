@@ -418,3 +418,59 @@ export interface Annotation {
   created_at: string;
   updated_at: string;
 }
+
+// ============ Teaching Skim（教学粗读，结构化带读）============
+
+export type TeachingSkimGroup = 'why' | 'insight' | 'what' | 'how' | 'results' | 'takeaways';
+export type TeachingSkimConfidence = 'from_text' | 'inferred' | 'needs_verify';
+export type TeachingSkimNextStepType =
+  | 'one_pager_diagram'
+  | 'algorithm_walkthrough'
+  | 'compare_with'
+  | 'reproduction_plan'
+  | 'ablation_audit'
+  | 'transfer_to_llm'
+  | 'implementation_notes';
+
+export interface TeachingSkimCard {
+  id: string;
+  group: TeachingSkimGroup;
+  title: string;
+  one_liner: string;
+  key_points: string[];
+  why_it_matters: string;
+  evidence_anchors: string[];
+  confidence: TeachingSkimConfidence;
+}
+
+export interface TeachingSkimTable {
+  id: string;
+  title: string;
+  columns: string[];
+  rows: string[][];
+  evidence_anchors: string[];
+}
+
+export interface TeachingSkimNextStep {
+  id: string;
+  type: TeachingSkimNextStepType;
+  title: string;
+  goal: string;
+  deliverable: string;
+  estimated_time: string;
+  inputs_required: string[];
+}
+
+export interface TeachingSkimRouteScope {
+  type: 'route' | 'full';
+  sections: string[];
+}
+
+export interface TeachingSkimPack {
+  version: 'teaching_skim_v1' | string;
+  paper_id: string;
+  route_scope: TeachingSkimRouteScope;
+  cards: TeachingSkimCard[];
+  tables: TeachingSkimTable[];
+  next_steps: TeachingSkimNextStep[];
+}

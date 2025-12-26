@@ -20,6 +20,133 @@ SKIM_CARD_PROMPT = """你是一个学术论文分析助手。请分析以下论�
 
 只输出JSON，不要其他内容。"""
 
+TEACHING_SKIM_PROMPT = """你是一个“论文带读/教学讲解”专家。你的目标是把读者从零带到能理解论文主线。
+请基于输入信息，生成一个“教学粗读（Teaching Skim）”的结构化 JSON 卡片集合，强调叙事连续性（Why→Insight→What→How→Results→Takeaways），并提供可选探索方向（Next steps）。
+
+【硬性约束】
+1) 只输出 JSON，不要输出任何解释、markdown 或多余文字
+2) 卡片粒度“少而精”：每个 group 最多 1 张卡（总共 6 张），确保阅读连续不割裂
+3) 尽量提供 evidence_anchors：只能从给定候选 anchor_id 中选择；没有把握就留空，并把 confidence 标为 needs_verify
+4) next_steps 必须是“可执行的产物导向选项”，并且 type 必须来自允许列表
+
+【允许的 next_steps.type 列表】
+- one_pager_diagram
+- algorithm_walkthrough
+- compare_with
+- reproduction_plan
+- ablation_audit
+- transfer_to_llm
+- implementation_notes
+
+【输入数据】
+paper_meta:
+{paper_meta_json}
+
+skim_card:
+{skim_card_json}
+
+key_figures:
+{key_figures_json}
+
+section_summaries (按路线范围，已是压缩信息):
+{section_summaries_json}
+
+evidence_anchor_candidates (只可引用这些 anchor_id):
+{anchor_candidates_json}
+
+【输出 JSON Schema（严格遵守字段名）】
+{{
+  "version": "teaching_skim_v1",
+  "paper_id": "{paper_id}",
+  "route_scope": {{
+    "type": "route|full",
+    "sections": ["SectionName1", "SectionName2"]
+  }},
+  "cards": [
+    {{
+      "id": "why",
+      "group": "why",
+      "title": "…",
+      "one_liner": "一句话抓主问题",
+      "key_points": ["…", "…"],
+      "why_it_matters": "为什么重要/瓶颈是什么（2-4句）",
+      "evidence_anchors": ["anchor_id_optional"],
+      "confidence": "from_text|inferred|needs_verify"
+    }},
+    {{
+      "id": "insight",
+      "group": "insight",
+      "title": "…",
+      "one_liner": "一句话抓关键观察",
+      "key_points": ["…", "…"],
+      "why_it_matters": "这个观察解释了什么失败经验/取舍（2-4句）",
+      "evidence_anchors": ["anchor_id_optional"],
+      "confidence": "from_text|inferred|needs_verify"
+    }},
+    {{
+      "id": "what",
+      "group": "what",
+      "title": "…",
+      "one_liner": "一句话抓核心方法",
+      "key_points": ["…", "…"],
+      "why_it_matters": "方法相对 baseline 的关键不同在哪里（2-4句）",
+      "evidence_anchors": ["anchor_id_optional"],
+      "confidence": "from_text|inferred|needs_verify"
+    }},
+    {{
+      "id": "how",
+      "group": "how",
+      "title": "…",
+      "one_liner": "一句话抓实现主线",
+      "key_points": ["分步骤1", "分步骤2", "分步骤3"],
+      "why_it_matters": "每步在解决什么子问题（2-4句）",
+      "evidence_anchors": ["anchor_id_optional"],
+      "confidence": "from_text|inferred|needs_verify"
+    }},
+    {{
+      "id": "results",
+      "group": "results",
+      "title": "…",
+      "one_liner": "一句话抓最重要结论",
+      "key_points": ["效率结论", "质量结论", "消融结论"],
+      "why_it_matters": "哪些结果最能支撑主张（2-4句）",
+      "evidence_anchors": ["anchor_id_optional"],
+      "confidence": "from_text|inferred|needs_verify"
+    }},
+    {{
+      "id": "takeaways",
+      "group": "takeaways",
+      "title": "你应该带走的要点",
+      "one_liner": "一句话总收束",
+      "key_points": ["要点1", "要点2", "要点3", "要点4", "要点5"],
+      "why_it_matters": "这些要点如何指导你迁移/复现/写作（2-4句）",
+      "evidence_anchors": [],
+      "confidence": "inferred"
+    }}
+  ],
+  "tables": [
+    {{
+      "id": "method_breakdown",
+      "title": "方法模块/对比表（可选）",
+      "columns": ["列1", "列2", "列3"],
+      "rows": [["…", "…", "…"]],
+      "evidence_anchors": ["anchor_id_optional"]
+    }}
+  ],
+  "next_steps": [
+    {{
+      "id": "ns1",
+      "type": "one_pager_diagram",
+      "title": "…",
+      "goal": "点了你会得到什么",
+      "deliverable": "产物名称/格式",
+      "estimated_time": "5-10min|10-20min|20-40min",
+      "inputs_required": ["…", "…"]
+    }}
+  ]
+}}
+"""
+
 
 TERM_EXPLAINER_PROMPT = """你是一个学术术语解释专家。请解释以下术语：
 
