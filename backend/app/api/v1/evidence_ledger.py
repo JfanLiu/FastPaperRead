@@ -1,16 +1,18 @@
 """
-Evidence Ledger（主张-证据台账）API端点
+Evidence Ledger（主张-证据台账）API端点 - 数据库持久化实现
 """
 import os
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from pydantic import BaseModel
+from datetime import datetime
 
 from ...api.deps import get_db, get_enhancer
 from ...crud import paper_crud
 from ...core.llm import ContentEnhancer
 from ...config import settings
+from ...db.models import EvidenceLedgerModel
 
 router = APIRouter()
 
@@ -73,8 +75,14 @@ def get_paper_content(paper) -> str:
     return paper.abstract or ""
 
 
-# 内存存储（实际应该存到数据库）
-_evidence_ledgers = {}
+def ledger_model_to_dict(ledger: EvidenceLedgerModel) -> dict:
+    """将数据库模型转换为字典"""
+    return {
+        "claims": ledger.claims or [],
+        "overall_evidence_quality": ledger.overall_evidence_quality or "medium",
+        "key_assumptions": ledger.key_assumptions or [],
+        "methodology_concerns": ledger.methodology_concerns or []
+    }
 
 
 @router.post("/{paper_id}/generate", response_model=dict)
@@ -96,9 +104,13 @@ async def generate_evidence_ledger(
         raise HTTPException(status_code=404, detail="论文不存在")
     
     # 检查是否已存在且不强制重新生成
-    if paper_id in _evidence_ledgers and not force:
+    existing = db.query(EvidenceLedgerModel).filter(
+        EvidenceLedgerModel.paper_id == paper_id
+    ).first()
+    
+    if existing and not force:
         return {
-            "evidence_ledger": _evidence_ledgers[paper_id],
+            "evidence_ledger": ledger_model_to_dict(existing),
             "cached": True
         }
     
@@ -113,31 +125,42 @@ async def generate_evidence_ledger(
         # 转换格式
         claims = []
         for i, claim_data in enumerate(result.get("claims", [])):
-            claim = Claim(
-                id=claim_data.get("id", f"claim_{i+1}"),
-                text=claim_data.get("text", ""),
-                evidence_summary=claim_data.get("evidence_summary", ""),
-                evidence_type=claim_data.get("evidence_type", "experimental"),
-                strength=claim_data.get("strength", "medium"),
-                uncertainty=claim_data.get("uncertainty", "from_text"),
-                alternative_explanations=claim_data.get("alternative_explanations", []),
-                risks=claim_data.get("risks", []),
-                source_sections=claim_data.get("source_sections", [])
-            )
+            claim = {
+                "id": claim_data.get("id", f"claim_{i+1}"),
+                "text": claim_data.get("text", ""),
+                "evidence_summary": claim_data.get("evidence_summary", ""),
+                "evidence_anchors": claim_data.get("evidence_anchors", []),
+                "evidence_type": claim_data.get("evidence_type", "experimental"),
+                "strength": claim_data.get("strength", "medium"),
+                "uncertainty": claim_data.get("uncertainty", "from_text"),
+                "alternative_explanations": claim_data.get("alternative_explanations", []),
+                "risks": claim_data.get("risks", []),
+                "source_sections": claim_data.get("source_sections", [])
+            }
             claims.append(claim)
         
-        ledger = EvidenceLedgerData(
-            claims=claims,
-            overall_evidence_quality=result.get("overall_evidence_quality", "medium"),
-            key_assumptions=result.get("key_assumptions", []),
-            methodology_concerns=result.get("methodology_concerns", [])
-        )
+        # 保存到数据库
+        if existing:
+            existing.claims = claims
+            existing.overall_evidence_quality = result.get("overall_evidence_quality", "medium")
+            existing.key_assumptions = result.get("key_assumptions", [])
+            existing.methodology_concerns = result.get("methodology_concerns", [])
+            existing.updated_at = datetime.utcnow()
+        else:
+            existing = EvidenceLedgerModel(
+                paper_id=paper_id,
+                claims=claims,
+                overall_evidence_quality=result.get("overall_evidence_quality", "medium"),
+                key_assumptions=result.get("key_assumptions", []),
+                methodology_concerns=result.get("methodology_concerns", [])
+            )
+            db.add(existing)
         
-        # 存储
-        _evidence_ledgers[paper_id] = ledger.model_dump()
+        db.commit()
+        db.refresh(existing)
         
         return {
-            "evidence_ledger": ledger.model_dump(),
+            "evidence_ledger": ledger_model_to_dict(existing),
             "cached": False
         }
         
@@ -155,14 +178,18 @@ async def get_evidence_ledger(
     if not paper:
         raise HTTPException(status_code=404, detail="论文不存在")
     
-    if paper_id not in _evidence_ledgers:
+    ledger = db.query(EvidenceLedgerModel).filter(
+        EvidenceLedgerModel.paper_id == paper_id
+    ).first()
+    
+    if not ledger:
         return {
             "evidence_ledger": None,
             "message": "尚未生成证据台账"
         }
     
     return {
-        "evidence_ledger": _evidence_ledgers[paper_id]
+        "evidence_ledger": ledger_model_to_dict(ledger)
     }
 
 
@@ -177,10 +204,25 @@ async def update_evidence_ledger(
     if not paper:
         raise HTTPException(status_code=404, detail="论文不存在")
     
-    _evidence_ledgers[paper_id] = data.model_dump()
+    ledger = db.query(EvidenceLedgerModel).filter(
+        EvidenceLedgerModel.paper_id == paper_id
+    ).first()
+    
+    if not ledger:
+        ledger = EvidenceLedgerModel(paper_id=paper_id)
+        db.add(ledger)
+    
+    ledger.claims = [c.model_dump() for c in data.claims]
+    ledger.overall_evidence_quality = data.overall_evidence_quality
+    ledger.key_assumptions = data.key_assumptions
+    ledger.methodology_concerns = data.methodology_concerns
+    ledger.updated_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(ledger)
     
     return {
-        "evidence_ledger": _evidence_ledgers[paper_id],
+        "evidence_ledger": ledger_model_to_dict(ledger),
         "message": "更新成功"
     }
 
@@ -192,14 +234,19 @@ async def update_claim(
     db: Session = Depends(get_db)
 ):
     """更新单条主张"""
-    if paper_id not in _evidence_ledgers:
+    ledger = db.query(EvidenceLedgerModel).filter(
+        EvidenceLedgerModel.paper_id == paper_id
+    ).first()
+    
+    if not ledger:
         raise HTTPException(status_code=404, detail="证据台账不存在")
     
-    ledger = _evidence_ledgers[paper_id]
+    claims = ledger.claims or []
     
     # 找到并更新主张
     found = False
-    for claim in ledger["claims"]:
+    updated_claim = None
+    for claim in claims:
         if claim["id"] == request.claim_id:
             if request.text is not None:
                 claim["text"] = request.text
@@ -214,13 +261,18 @@ async def update_claim(
             if request.risks is not None:
                 claim["risks"] = request.risks
             found = True
+            updated_claim = claim
             break
     
     if not found:
         raise HTTPException(status_code=404, detail="主张不存在")
     
+    ledger.claims = claims
+    ledger.updated_at = datetime.utcnow()
+    db.commit()
+    
     return {
-        "claim": next(c for c in ledger["claims"] if c["id"] == request.claim_id),
+        "claim": updated_claim,
         "message": "更新成功"
     }
 
@@ -232,28 +284,50 @@ async def add_claim(
     db: Session = Depends(get_db)
 ):
     """添加新主张"""
-    if paper_id not in _evidence_ledgers:
-        _evidence_ledgers[paper_id] = EvidenceLedgerData().model_dump()
+    paper = paper_crud.get(db, paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="论文不存在")
     
-    ledger = _evidence_ledgers[paper_id]
+    ledger = db.query(EvidenceLedgerModel).filter(
+        EvidenceLedgerModel.paper_id == paper_id
+    ).first()
+    
+    if not ledger:
+        ledger = EvidenceLedgerModel(paper_id=paper_id)
+        db.add(ledger)
+        db.commit()
+        db.refresh(ledger)
+    
+    claims = ledger.claims or []
     
     # 生成新ID
-    existing_ids = [c["id"] for c in ledger["claims"]]
+    existing_ids = [c["id"] for c in claims]
     new_id = f"claim_{len(existing_ids) + 1}"
+    counter = len(existing_ids) + 1
     while new_id in existing_ids:
-        new_id = f"claim_{int(new_id.split('_')[1]) + 1}"
+        counter += 1
+        new_id = f"claim_{counter}"
     
-    new_claim = Claim(
-        id=new_id,
-        text=request.text,
-        evidence_anchors=request.evidence_anchors,
-        strength=request.strength
-    )
+    new_claim = {
+        "id": new_id,
+        "text": request.text,
+        "evidence_summary": "",
+        "evidence_anchors": request.evidence_anchors,
+        "evidence_type": "experimental",
+        "strength": request.strength,
+        "uncertainty": "from_text",
+        "alternative_explanations": [],
+        "risks": [],
+        "source_sections": []
+    }
     
-    ledger["claims"].append(new_claim.model_dump())
+    claims.append(new_claim)
+    ledger.claims = claims
+    ledger.updated_at = datetime.utcnow()
+    db.commit()
     
     return {
-        "claim": new_claim.model_dump(),
+        "claim": new_claim,
         "message": "添加成功"
     }
 
@@ -265,15 +339,23 @@ async def delete_claim(
     db: Session = Depends(get_db)
 ):
     """删除主张"""
-    if paper_id not in _evidence_ledgers:
+    ledger = db.query(EvidenceLedgerModel).filter(
+        EvidenceLedgerModel.paper_id == paper_id
+    ).first()
+    
+    if not ledger:
         raise HTTPException(status_code=404, detail="证据台账不存在")
     
-    ledger = _evidence_ledgers[paper_id]
-    original_count = len(ledger["claims"])
-    ledger["claims"] = [c for c in ledger["claims"] if c["id"] != claim_id]
+    claims = ledger.claims or []
+    original_count = len(claims)
+    claims = [c for c in claims if c["id"] != claim_id]
     
-    if len(ledger["claims"]) == original_count:
+    if len(claims) == original_count:
         raise HTTPException(status_code=404, detail="主张不存在")
+    
+    ledger.claims = claims
+    ledger.updated_at = datetime.utcnow()
+    db.commit()
     
     return {"message": "删除成功"}
 
@@ -285,11 +367,15 @@ async def claim_to_evidence_card(
     db: Session = Depends(get_db)
 ):
     """将主张转换为EvidenceCard"""
-    if paper_id not in _evidence_ledgers:
+    ledger = db.query(EvidenceLedgerModel).filter(
+        EvidenceLedgerModel.paper_id == paper_id
+    ).first()
+    
+    if not ledger:
         raise HTTPException(status_code=404, detail="证据台账不存在")
     
-    ledger = _evidence_ledgers[paper_id]
-    claim = next((c for c in ledger["claims"] if c["id"] == request.claim_id), None)
+    claims = ledger.claims or []
+    claim = next((c for c in claims if c["id"] == request.claim_id), None)
     
     if not claim:
         raise HTTPException(status_code=404, detail="主张不存在")
@@ -315,4 +401,3 @@ async def claim_to_evidence_card(
         "card_data": card_data,
         "message": "请使用此数据创建卡片"
     }
-

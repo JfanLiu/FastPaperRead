@@ -21,6 +21,7 @@ import {
   Sparkles,
   RefreshCw,
   ExternalLink,
+  Home,
 } from 'lucide-react';
 import type { Paper, SkimCard, Anchor } from '@/types';
 
@@ -135,14 +136,23 @@ export default function OverviewPage({ params }: PageProps) {
   return (
     <MainLayout showSearch={false} showRightPanel>
       <div className="p-6 max-w-5xl mx-auto">
-        {/* Back button */}
-        <Link
-          href="/library"
-          className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-6"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          返回文献库
-        </Link>
+        {/* Navigation buttons */}
+        <div className="flex items-center gap-4 mb-6">
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+          >
+            <Home className="w-4 h-4" />
+            主页
+          </Link>
+          <Link
+            href="/library"
+            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            返回文献库
+          </Link>
+        </div>
 
         {/* Paper Header */}
         <div className="bg-white rounded-2xl border border-gray-200 p-6 mb-6">

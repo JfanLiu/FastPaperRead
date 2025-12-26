@@ -15,15 +15,17 @@ import {
   ChevronLeft,
   ChevronRight,
   Sparkles,
+  LayoutDashboard,
 } from 'lucide-react';
 
 const navigation = [
+  { name: '仪表盘', href: '/dashboard', icon: LayoutDashboard },
   { name: '文献库', href: '/library', icon: Library },
   { name: '导入论文', href: '/import', icon: Upload },
   { name: '待读队列', href: '/queue', icon: BookOpen },
   { name: '笔记库', href: '/notes', icon: StickyNote },
-  { name: '对比模式', href: '/compare', icon: GitCompare },
-  { name: '审稿模式', href: '/review', icon: ClipboardCheck },
+  { name: '论文对比', href: '/compare', icon: GitCompare },
+  { name: '审稿记录', href: '/review', icon: ClipboardCheck },
 ];
 
 export function Sidebar() {
@@ -39,7 +41,7 @@ export function Sidebar() {
     >
       {/* Logo */}
       <div className="flex items-center justify-between h-16 px-4 border-b border-gray-100">
-        <Link href="/library" className="flex items-center gap-2">
+        <Link href="/dashboard" className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
             <Sparkles className="w-5 h-5 text-white" />
           </div>

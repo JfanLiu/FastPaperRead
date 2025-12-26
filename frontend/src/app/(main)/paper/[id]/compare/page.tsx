@@ -18,6 +18,8 @@ import {
   RefreshCw,
   Loader2,
   Save,
+  Home,
+  ArrowLeft,
 } from 'lucide-react';
 
 interface CompareItem {
@@ -249,6 +251,22 @@ export default function ComparePage() {
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1">
+                <button 
+                  onClick={() => router.push('/dashboard')}
+                  className="p-2 text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                  title="返回主页"
+                >
+                  <Home className="w-5 h-5" />
+                </button>
+                <button 
+                  onClick={() => router.back()}
+                  className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                  title="返回上一页"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+              </div>
               <GitCompare className="w-6 h-6 text-indigo-600" />
               <h1 className="text-xl font-semibold text-gray-900">论文对比</h1>
               <Badge variant="info">{papers.length} 篇论文</Badge>

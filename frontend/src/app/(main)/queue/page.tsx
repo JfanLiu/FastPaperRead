@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { MainLayout } from '@/components/layout';
 import { Button, Badge, EmptyState } from '@/components/common';
 import { cn } from '@/lib/utils';
 import { skimApi, paperApi } from '@/lib/api';
@@ -15,6 +16,7 @@ import {
   Star,
   Loader2,
   ListTodo,
+  RefreshCw,
 } from 'lucide-react';
 
 interface QueueItem {
@@ -101,42 +103,29 @@ export default function QueuePage() {
     );
   };
 
+  const headerActions = (
+    <Button variant="secondary" onClick={loadQueue}>
+      <RefreshCw className="w-4 h-4 mr-1" />
+      刷新
+    </Button>
+  );
+
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
-          <span className="text-gray-500">加载中...</span>
+      <MainLayout title="待读队列" showSearch={false} headerActions={headerActions}>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+            <span className="text-gray-500">加载中...</span>
+          </div>
         </div>
-      </div>
+      </MainLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center">
-                <ListTodo className="w-5 h-5 text-indigo-600" />
-              </div>
-              <div>
-                <h1 className="text-xl font-semibold text-gray-900">待读队列</h1>
-                <p className="text-sm text-gray-500">
-                  {items.length} 篇论文待阅读
-                </p>
-              </div>
-            </div>
-            <Button variant="secondary" onClick={loadQueue}>
-              刷新
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      <div className="max-w-4xl mx-auto px-6 py-8">
+    <MainLayout title="待读队列" showSearch={false} headerActions={headerActions}>
+      <div className="p-6 max-w-4xl mx-auto">
         {items.length === 0 ? (
           <EmptyState
             icon={<BookOpen className="w-8 h-8 text-gray-400" />}
@@ -261,7 +250,7 @@ export default function QueuePage() {
           </div>
         )}
       </div>
-    </div>
+    </MainLayout>
   );
 }
 

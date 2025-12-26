@@ -1,5 +1,5 @@
 """
-Chat（对话协作）API端点
+Chat（对话协作）API端点 - 数据库持久化实现
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -10,6 +10,7 @@ from datetime import datetime
 from ...api.deps import get_db, get_enhancer
 from ...crud import paper_crud
 from ...core.llm import ContentEnhancer
+from ...db.models import ChatHistoryModel
 
 router = APIRouter()
 
@@ -37,8 +38,13 @@ class ChatHistory(BaseModel):
     current_mode: str = "seminar"
 
 
-# 内存存储聊天历史
-_chat_histories = {}
+def history_model_to_dict(history: ChatHistoryModel) -> dict:
+    """将数据库模型转换为字典"""
+    return {
+        "paper_id": history.paper_id,
+        "messages": history.messages or [],
+        "current_mode": history.current_mode or "seminar"
+    }
 
 
 @router.post("/{paper_id}", response_model=dict)
@@ -62,31 +68,39 @@ async def send_message(
         raise HTTPException(status_code=404, detail="论文不存在")
     
     # 初始化或获取聊天历史
-    if paper_id not in _chat_histories:
-        _chat_histories[paper_id] = ChatHistory(
-            paper_id=paper_id,
-            messages=[],
-            current_mode=request.mode
-        ).model_dump()
+    history = db.query(ChatHistoryModel).filter(
+        ChatHistoryModel.paper_id == paper_id
+    ).first()
     
-    history = _chat_histories[paper_id]
+    if not history:
+        history = ChatHistoryModel(
+            paper_id=paper_id,
+            current_mode=request.mode,
+            messages=[]
+        )
+        db.add(history)
+        db.commit()
+        db.refresh(history)
     
     # 更新模式
-    history["current_mode"] = request.mode
+    history.current_mode = request.mode
+    
+    # 获取消息列表
+    messages = history.messages or []
     
     # 添加用户消息
-    user_message = ChatMessage(
-        role="user",
-        content=request.message,
-        timestamp=datetime.now().isoformat(),
-        context_anchors=request.context_anchors
-    )
-    history["messages"].append(user_message.model_dump())
+    user_message = {
+        "role": "user",
+        "content": request.message,
+        "timestamp": datetime.now().isoformat(),
+        "context_anchors": request.context_anchors
+    }
+    messages.append(user_message)
     
     # 准备历史消息格式
     chat_history = [
         {"role": msg["role"], "content": msg["content"]}
-        for msg in history["messages"][-10:]  # 只取最近10条
+        for msg in messages[-10:]  # 只取最近10条
     ]
     
     # 准备作者信息
@@ -107,20 +121,29 @@ async def send_message(
         )
         
         # 添加助手消息
-        assistant_message = ChatMessage(
-            role="assistant",
-            content=response,
-            timestamp=datetime.now().isoformat(),
-            context_anchors=[]
-        )
-        history["messages"].append(assistant_message.model_dump())
+        assistant_message = {
+            "role": "assistant",
+            "content": response,
+            "timestamp": datetime.now().isoformat(),
+            "context_anchors": []
+        }
+        messages.append(assistant_message)
+        
+        # 保存到数据库
+        history.messages = messages
+        history.updated_at = datetime.utcnow()
+        db.commit()
         
         return {
-            "message": assistant_message.model_dump(),
+            "message": assistant_message,
             "mode": request.mode
         }
         
     except Exception as e:
+        # 回滚用户消息
+        messages.pop()
+        history.messages = messages
+        db.commit()
         raise HTTPException(status_code=500, detail=f"对话失败: {str(e)}")
 
 
@@ -135,21 +158,27 @@ async def get_chat_history(
     if not paper:
         raise HTTPException(status_code=404, detail="论文不存在")
     
-    if paper_id not in _chat_histories:
+    history = db.query(ChatHistoryModel).filter(
+        ChatHistoryModel.paper_id == paper_id
+    ).first()
+    
+    if not history:
         return {
-            "history": ChatHistory(paper_id=paper_id).model_dump(),
+            "history": {
+                "paper_id": paper_id,
+                "messages": [],
+                "current_mode": "seminar"
+            },
             "message": "暂无聊天记录"
         }
     
-    history = _chat_histories[paper_id]
+    history_dict = history_model_to_dict(history)
     
     # 限制返回数量
-    if limit and len(history["messages"]) > limit:
-        history_copy = history.copy()
-        history_copy["messages"] = history["messages"][-limit:]
-        return {"history": history_copy}
+    if limit and len(history_dict["messages"]) > limit:
+        history_dict["messages"] = history_dict["messages"][-limit:]
     
-    return {"history": history}
+    return {"history": history_dict}
 
 
 @router.delete("/{paper_id}/history", response_model=dict)
@@ -162,8 +191,14 @@ async def clear_chat_history(
     if not paper:
         raise HTTPException(status_code=404, detail="论文不存在")
     
-    if paper_id in _chat_histories:
-        _chat_histories[paper_id] = ChatHistory(paper_id=paper_id).model_dump()
+    history = db.query(ChatHistoryModel).filter(
+        ChatHistoryModel.paper_id == paper_id
+    ).first()
+    
+    if history:
+        history.messages = []
+        history.updated_at = datetime.utcnow()
+        db.commit()
     
     return {"message": "聊天历史已清空"}
 
@@ -186,13 +221,19 @@ async def switch_mode(
     if not paper:
         raise HTTPException(status_code=404, detail="论文不存在")
     
-    if paper_id not in _chat_histories:
-        _chat_histories[paper_id] = ChatHistory(
+    history = db.query(ChatHistoryModel).filter(
+        ChatHistoryModel.paper_id == paper_id
+    ).first()
+    
+    if not history:
+        history = ChatHistoryModel(
             paper_id=paper_id,
-            current_mode=mode
-        ).model_dump()
+            current_mode=mode,
+            messages=[]
+        )
+        db.add(history)
     else:
-        _chat_histories[paper_id]["current_mode"] = mode
+        history.current_mode = mode
     
     # 添加系统消息提示模式切换
     mode_descriptions = {
@@ -202,16 +243,21 @@ async def switch_mode(
         "design": "方案设计模式：我会基于论文内容，讨论可能的改进方向和研究方案。"
     }
     
-    system_message = ChatMessage(
-        role="assistant",
-        content=f"已切换到{mode_descriptions[mode]}",
-        timestamp=datetime.now().isoformat(),
-        context_anchors=[]
-    )
-    _chat_histories[paper_id]["messages"].append(system_message.model_dump())
+    system_message = {
+        "role": "assistant",
+        "content": f"已切换到{mode_descriptions[mode]}",
+        "timestamp": datetime.now().isoformat(),
+        "context_anchors": []
+    }
+    
+    messages = history.messages or []
+    messages.append(system_message)
+    history.messages = messages
+    history.updated_at = datetime.utcnow()
+    
+    db.commit()
     
     return {
         "mode": mode,
         "description": mode_descriptions[mode]
     }
-

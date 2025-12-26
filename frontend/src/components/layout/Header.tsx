@@ -1,8 +1,9 @@
 'use client';
 
+import Link from 'next/link';
 import { useUIStore } from '@/stores/uiStore';
 import { usePaperStore } from '@/stores/paperStore';
-import { Search, Bell, Settings, User } from 'lucide-react';
+import { Search, Bell, Settings, User, Home } from 'lucide-react';
 import { Input } from '@/components/common';
 
 interface HeaderProps {
@@ -22,9 +23,22 @@ export function Header({ title, showSearch = true, actions }: HeaderProps) {
       }`}
     >
       <div className="flex items-center justify-between h-full px-6">
-        {/* Left: Title or Search */}
+        {/* Left: Home + Title or Search */}
         <div className="flex items-center gap-4">
-          {title && <h1 className="text-xl font-semibold text-gray-900">{title}</h1>}
+          <Link 
+            href="/dashboard" 
+            className="flex items-center gap-2 px-3 py-1.5 text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+            title="返回主页"
+          >
+            <Home className="w-5 h-5" />
+            <span className="text-sm font-medium">主页</span>
+          </Link>
+          {title && (
+            <>
+              <span className="text-gray-300">|</span>
+              <h1 className="text-xl font-semibold text-gray-900">{title}</h1>
+            </>
+          )}
           {showSearch && (
             <div className="w-80">
               <Input

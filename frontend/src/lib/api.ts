@@ -426,9 +426,21 @@ export const compareApi = {
     return res.data;
   },
 
+  // 获取对比集合列表
+  listSets: async (skip: number = 0, limit: number = 20) => {
+    const res = await api.get('/compare/sets', { params: { skip, limit } });
+    return res.data;
+  },
+
   // 获取对比集合
   getSet: async (setId: string) => {
     const res = await api.get(`/compare/sets/${setId}`);
+    return res.data;
+  },
+
+  // 删除对比集合
+  deleteSet: async (setId: string) => {
+    const res = await api.delete(`/compare/sets/${setId}`);
     return res.data;
   },
 
@@ -493,6 +505,12 @@ export const reviewApi = {
   // 获取评分标准
   getRubric: async (paperId: string) => {
     const res = await api.get(`/review/${paperId}/rubric`);
+    return res.data;
+  },
+
+  // 获取审稿列表
+  list: async (skip: number = 0, limit: number = 20) => {
+    const res = await api.get('/review/list', { params: { skip, limit } });
     return res.data;
   },
 };

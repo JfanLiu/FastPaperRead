@@ -383,3 +383,41 @@ class AnalyticsEventModel(Base):
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
+class EvidenceLedgerModel(Base):
+    """证据台账表 - 持久化存储主张-证据台账"""
+    __tablename__ = "evidence_ledgers"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    paper_id = Column(String(36), ForeignKey("papers.id"), nullable=False, unique=True, index=True)
+    
+    # 主张列表 (JSON数组)
+    claims = Column(JSON, default=list)
+    
+    # 整体评估
+    overall_evidence_quality = Column(String(20), default="medium")  # strong/medium/weak
+    key_assumptions = Column(JSON, default=list)
+    methodology_concerns = Column(JSON, default=list)
+    
+    # 时间戳
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ChatHistoryModel(Base):
+    """聊天历史表 - 持久化存储对话记录"""
+    __tablename__ = "chat_histories"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    paper_id = Column(String(36), ForeignKey("papers.id"), nullable=False, unique=True, index=True)
+    
+    # 当前模式
+    current_mode = Column(String(20), default="seminar")  # seminar/writing/reproduction/design
+    
+    # 消息列表 (JSON数组，每个元素包含 role, content, timestamp, context_anchors)
+    messages = Column(JSON, default=list)
+    
+    # 时间戳
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+

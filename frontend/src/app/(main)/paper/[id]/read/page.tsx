@@ -37,6 +37,7 @@ import {
   Pause,
   Play,
   ArrowLeft,
+  Home,
 } from 'lucide-react';
 
 // 动态导入 PDFViewer，禁用服务端渲染以避免 DOMMatrix 错误
@@ -470,12 +471,22 @@ export default function ReadPage() {
       {/* Top Bar */}
       <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-gray-200 shrink-0">
         <div className="flex items-center gap-4">
-          <button 
-            onClick={() => router.back()}
-            className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button 
+              onClick={() => router.push('/dashboard')}
+              className="p-2 text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+              title="返回主页"
+            >
+              <Home className="w-5 h-5" />
+            </button>
+            <button 
+              onClick={() => router.back()}
+              className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+              title="返回上一页"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+          </div>
           <div>
             <h1 className="font-medium text-gray-900 line-clamp-1">{paper.title}</h1>
             <div className="flex items-center gap-2 text-sm text-gray-500">

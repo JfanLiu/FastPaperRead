@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { MainLayout } from '@/components/layout';
 import { Button, Badge, Input, EmptyState } from '@/components/common';
 import { PaperCard, EvidenceCard, MethodCard } from '@/components/cards';
 import { cn } from '@/lib/utils';
@@ -132,41 +133,30 @@ export default function NotesPage() {
     }
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold text-gray-900">笔记库</h1>
-              <p className="text-sm text-gray-500 mt-1">
-                共 {total} 张卡片
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <Button 
-                variant="secondary" 
-                onClick={handleExport}
-                disabled={isExporting || cards.length === 0}
-              >
-                {isExporting ? (
-                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                ) : (
-                  <Download className="w-4 h-4 mr-1" />
-                )}
-                导出
-              </Button>
-              <Button variant="secondary" onClick={loadCards}>
-                <RefreshCw className="w-4 h-4 mr-1" />
-                刷新
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
+  const headerActions = (
+    <div className="flex items-center gap-3">
+      <Button 
+        variant="secondary" 
+        onClick={handleExport}
+        disabled={isExporting || cards.length === 0}
+      >
+        {isExporting ? (
+          <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+        ) : (
+          <Download className="w-4 h-4 mr-1" />
+        )}
+        导出
+      </Button>
+      <Button variant="secondary" onClick={loadCards}>
+        <RefreshCw className="w-4 h-4 mr-1" />
+        刷新
+      </Button>
+    </div>
+  );
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
+  return (
+    <MainLayout title="笔记库" headerActions={headerActions}>
+      <div className="p-6">
         {/* Filters */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
@@ -300,6 +290,6 @@ export default function NotesPage() {
           </div>
         )}
       </div>
-    </div>
+    </MainLayout>
   );
 }
