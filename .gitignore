@@ -70,6 +70,10 @@ output/
 *.db
 *.sqlite3
 
+# ChromaDB (vector store) local persistence
+backend/chroma_db/
+chroma_db/
+
 # Test
 .coverage
 htmlcov/
