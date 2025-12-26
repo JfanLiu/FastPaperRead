@@ -23,6 +23,15 @@ import type {
   SectionSummaryLeveled,
   PaperCardFull,
   TeachingSkimPack,
+  // 新增统一包类型
+  SkimPack,
+  SkimPackRequest,
+  SkimPackResponse,
+  DeepPack,
+  DeepPackRequest,
+  DeepPackResponse,
+  BatchSectionSummaryRequest,
+  BatchSectionSummaryResponse,
 } from '@/types';
 import { apiLogger } from './logger';
 
@@ -635,6 +644,35 @@ export const enhanceApiExtended = {
     }[];
   }): Promise<{ teaching_skim: TeachingSkimPack }> => {
     const res = await api.post('/enhance/teaching-skim', payload);
+    return res.data;
+  },
+
+  // ===== 统一粗读包 =====
+  // 一次生成完整粗读材料（skim_card + key_figures + teaching_skim）
+  generateSkimPack: async (
+    paperId: string,
+    request: SkimPackRequest
+  ): Promise<SkimPackResponse> => {
+    const res = await api.post(`/enhance/skim-pack/${paperId}`, request);
+    return res.data;
+  },
+
+  // ===== 统一精读包 =====
+  // 一次生成完整精读材料（paper_card + evidence_ledger + method_flow + experiment_setup + section_summaries）
+  generateDeepPack: async (
+    paperId: string,
+    request: DeepPackRequest
+  ): Promise<DeepPackResponse> => {
+    const res = await api.post(`/enhance/deep-pack/${paperId}`, request);
+    return res.data;
+  },
+
+  // ===== 批量章节摘要 =====
+  // 一次生成所有章节的三层摘要
+  generateBatchSectionSummary: async (
+    request: BatchSectionSummaryRequest
+  ): Promise<BatchSectionSummaryResponse> => {
+    const res = await api.post('/enhance/batch-section-summary', request);
     return res.data;
   },
 };

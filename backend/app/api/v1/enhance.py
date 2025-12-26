@@ -16,6 +16,16 @@ from ...schemas.enhance import (
     TeachingSkimGenerateRequest,
     TeachingSkimGenerateResponse,
     TeachingSkimPack,
+    # 新增统一包类型
+    SkimPack,
+    SkimPackRequest,
+    SkimPackResponse,
+    DeepPack,
+    DeepPackRequest,
+    DeepPackResponse,
+    BatchSectionSummaryRequest,
+    BatchSectionSummaryResponse,
+    SectionSummaryLeveled,
 )
 from ...config import settings
 
@@ -606,3 +616,187 @@ async def generate_paper_card_full(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"生成失败: {str(e)}")
+
+
+# =========================
+# 统一粗读包 Skim Pack
+# =========================
+
+@router.post("/skim-pack/{paper_id}", response_model=SkimPackResponse)
+async def generate_skim_pack(
+    paper_id: str,
+    request: SkimPackRequest,
+    db: Session = Depends(get_db),
+    enhancer: ContentEnhancer = Depends(get_enhancer)
+):
+    """
+    一次性生成完整粗读包（Skim Pack）
+    
+    包含：
+    - skim_card: 决策卡片
+    - key_figures: 关键图表
+    - teaching_skim: 教学粗读（Why→Insight→What→How→Results→Takeaways + 下一步选项）
+    
+    优势：一次 LLM 调用完成所有粗读材料生成
+    """
+    paper = paper_crud.get(db, paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="论文不存在")
+    
+    # 获取论文内容
+    content = get_paper_content(paper)
+    if not content:
+        raise HTTPException(status_code=400, detail="论文内容不足，请确保论文已解析完成")
+    
+    # 准备 paper_meta
+    authors = paper.authors[:5] if paper.authors else []
+    paper_meta = {
+        "title": paper.title,
+        "authors": authors,
+        "year": paper.year,
+        "abstract": paper.abstract[:1000] if paper.abstract else "",
+        "venue": paper.venue or ""
+    }
+    
+    try:
+        result = await enhancer.generate_skim_pack(
+            paper_id=paper_id,
+            paper_meta=paper_meta,
+            paper_content=content,
+            sections_outline=request.sections_outline
+        )
+        
+        # 构造响应
+        skim_pack = SkimPack(
+            version=result.get("version", "skim_pack_v1"),
+            paper_id=paper_id,
+            skim_card=result.get("skim_card", {}),
+            key_figures=result.get("key_figures", []),
+            teaching_skim=result.get("teaching_skim", {})
+        )
+        
+        return SkimPackResponse(skim_pack=skim_pack, cached=False)
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"粗读包生成失败: {str(e)}")
+
+
+# =========================
+# 统一精读包 Deep Pack
+# =========================
+
+@router.post("/deep-pack/{paper_id}", response_model=DeepPackResponse)
+async def generate_deep_pack(
+    paper_id: str,
+    request: DeepPackRequest,
+    db: Session = Depends(get_db),
+    enhancer: ContentEnhancer = Depends(get_enhancer)
+):
+    """
+    一次性生成完整精读包（Deep Pack）
+    
+    包含：
+    - paper_card: 论文卡片（一句话总结、贡献、局限、适用范围）
+    - evidence_ledger: 证据台账（主张-证据对应）
+    - method_flow: 方法流程（步骤、输入输出、创新点）
+    - experiment_setup: 实验设置（数据集、基线、指标、超参数）
+    - section_summaries: 所有章节的三层摘要
+    
+    优势：一次 LLM 调用完成所有精读材料生成
+    """
+    paper = paper_crud.get(db, paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="论文不存在")
+    
+    # 获取论文内容
+    content = get_paper_content(paper)
+    if not content:
+        raise HTTPException(status_code=400, detail="论文内容不足，请确保论文已解析完成")
+    
+    # 准备 paper_meta
+    authors = paper.authors[:5] if paper.authors else []
+    paper_meta = {
+        "title": paper.title,
+        "authors": authors,
+        "year": paper.year,
+        "abstract": paper.abstract[:1000] if paper.abstract else "",
+        "venue": paper.venue or ""
+    }
+    
+    # 准备章节数据
+    sections_data = [
+        {"title": s.title, "content": s.content[:2000] if s.content else ""}
+        for s in request.sections
+    ]
+    
+    try:
+        result = await enhancer.generate_deep_pack(
+            paper_id=paper_id,
+            paper_meta=paper_meta,
+            paper_content=content,
+            sections=sections_data
+        )
+        
+        # 构造响应
+        deep_pack = DeepPack(
+            version=result.get("version", "deep_pack_v1"),
+            paper_id=paper_id,
+            paper_card=result.get("paper_card", {}),
+            evidence_ledger=result.get("evidence_ledger", {}),
+            method_flow=result.get("method_flow", {}),
+            experiment_setup=result.get("experiment_setup", {}),
+            section_summaries=result.get("section_summaries", {})
+        )
+        
+        return DeepPackResponse(deep_pack=deep_pack, cached=False)
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"精读包生成失败: {str(e)}")
+
+
+# =========================
+# 批量章节摘要
+# =========================
+
+@router.post("/batch-section-summary", response_model=BatchSectionSummaryResponse)
+async def generate_batch_section_summary(
+    request: BatchSectionSummaryRequest,
+    enhancer: ContentEnhancer = Depends(get_enhancer)
+):
+    """
+    一次性生成所有章节的三层摘要
+    
+    每个章节包含：
+    - one_liner: 一句话版本
+    - plain: 通俗版本
+    - strict: 严格版本
+    
+    优势：一次 LLM 调用生成所有章节摘要，避免 N 次调用
+    """
+    if not request.sections:
+        raise HTTPException(status_code=400, detail="请提供章节列表")
+    
+    # 准备章节数据
+    sections_data = [
+        {"title": s.title, "content": s.content[:3000] if s.content else ""}
+        for s in request.sections
+    ]
+    
+    try:
+        result = await enhancer.batch_section_summary(sections_data)
+        
+        # 构造响应
+        section_summaries = {}
+        raw_summaries = result.get("section_summaries", {})
+        
+        for title, summary in raw_summaries.items():
+            section_summaries[title] = SectionSummaryLeveled(
+                one_liner=summary.get("one_liner", ""),
+                plain=summary.get("plain", ""),
+                strict=summary.get("strict", "")
+            )
+        
+        return BatchSectionSummaryResponse(section_summaries=section_summaries)
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"批量摘要生成失败: {str(e)}")

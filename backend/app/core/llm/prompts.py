@@ -563,3 +563,286 @@ GENERATE_PAPER_CARD_PROMPT = """你是一个论文总结专家。请基于以下
 }}
 
 只输出JSON，不要其他内容。"""
+
+
+# ===== 统一粗读包 Prompt =====
+SKIM_PACK_PROMPT = """你是一个"论文带读/教学讲解"专家。你的目标是一次性生成完整的"粗读包（Skim Pack）"，帮助读者快速把握论文全貌。
+
+【硬性约束】
+1) 只输出 JSON，不要输出任何解释、markdown 或多余文字
+2) 把 skim_card、teaching_skim、key_figures 全部合并到一个 JSON 输出
+3) teaching_skim 的 cards 必须恰好6张（why/insight/what/how/results/takeaways），每张卡片 key_points 最多3条
+4) next_steps 必须是"可执行的产物导向选项"，type 必须来自允许列表
+
+【允许的 next_steps.type 列表】
+- one_pager_diagram
+- algorithm_walkthrough
+- compare_with
+- reproduction_plan
+- ablation_audit
+- transfer_to_llm
+- implementation_notes
+
+【输入数据】
+paper_id: {paper_id}
+paper_meta:
+{paper_meta_json}
+
+paper_content (full text, truncated):
+{paper_content}
+
+sections_outline:
+{sections_outline_json}
+
+【输出 JSON Schema（严格遵守字段名）】
+{{
+  "version": "skim_pack_v1",
+  "paper_id": "{paper_id}",
+  
+  "skim_card": {{
+    "research_question": "用一句话概括论文解决的核心问题",
+    "contributions": ["贡献1", "贡献2", "贡献3"],
+    "evidence_strength": "strong/medium/weak",
+    "evidence_strength_reason": "解释证据强度的原因",
+    "red_flags": ["可能的问题1", "可能的问题2"],
+    "recommended_route": "full_read/focused_read/skim/skip",
+    "recommended_sections": ["建议阅读的章节1", "建议阅读的章节2"]
+  }},
+  
+  "key_figures": [
+    {{
+      "id": "fig_1",
+      "caption": "图表标题",
+      "importance": "核心思想图/结果图/辅助图",
+      "one_liner": "一句话说明这张图展示什么"
+    }}
+  ],
+  
+  "teaching_skim": {{
+    "cards": [
+      {{
+        "id": "why",
+        "group": "why",
+        "title": "标题",
+        "one_liner": "一句话抓主问题",
+        "key_points": ["要点1", "要点2", "要点3"],
+        "why_it_matters": "为什么重要/瓶颈是什么（2-4句）",
+        "confidence": "from_text|inferred|needs_verify"
+      }},
+      {{
+        "id": "insight",
+        "group": "insight",
+        "title": "标题",
+        "one_liner": "一句话抓关键观察",
+        "key_points": ["要点1", "要点2"],
+        "why_it_matters": "这个观察解释了什么失败经验/取舍（2-4句）",
+        "confidence": "from_text|inferred|needs_verify"
+      }},
+      {{
+        "id": "what",
+        "group": "what",
+        "title": "标题",
+        "one_liner": "一句话抓核心方法",
+        "key_points": ["要点1", "要点2"],
+        "why_it_matters": "方法相对 baseline 的关键不同在哪里（2-4句）",
+        "confidence": "from_text|inferred|needs_verify"
+      }},
+      {{
+        "id": "how",
+        "group": "how",
+        "title": "标题",
+        "one_liner": "一句话抓实现主线",
+        "key_points": ["分步骤1", "分步骤2", "分步骤3"],
+        "why_it_matters": "每步在解决什么子问题（2-4句）",
+        "confidence": "from_text|inferred|needs_verify"
+      }},
+      {{
+        "id": "results",
+        "group": "results",
+        "title": "标题",
+        "one_liner": "一句话抓最重要结论",
+        "key_points": ["效率结论", "质量结论", "消融结论"],
+        "why_it_matters": "哪些结果最能支撑主张（2-4句）",
+        "confidence": "from_text|inferred|needs_verify"
+      }},
+      {{
+        "id": "takeaways",
+        "group": "takeaways",
+        "title": "你应该带走的要点",
+        "one_liner": "一句话总收束",
+        "key_points": ["要点1", "要点2", "要点3"],
+        "why_it_matters": "这些要点如何指导你迁移/复现/写作（2-4句）",
+        "confidence": "inferred"
+      }}
+    ],
+    "tables": [
+      {{
+        "id": "method_comparison",
+        "title": "方法对比表（可选）",
+        "columns": ["维度", "本文方法", "Baseline"],
+        "rows": [["维度1", "本文做法", "Baseline做法"]]
+      }}
+    ],
+    "next_steps": [
+      {{
+        "id": "ns1",
+        "type": "one_pager_diagram",
+        "title": "下一步选项标题",
+        "goal": "点了你会得到什么",
+        "deliverable": "产物名称/格式",
+        "estimated_time": "5-10min|10-20min|20-40min",
+        "inputs_required": ["需要的输入1"]
+      }}
+    ]
+  }}
+}}
+"""
+
+
+# ===== 统一精读包 Prompt =====
+DEEP_PACK_PROMPT = """你是一个"论文深度分析"专家。你的目标是一次性生成完整的"精读包（Deep Pack）"，帮助读者深入理解论文的每个细节。
+
+【硬性约束】
+1) 只输出 JSON，不要输出任何解释、markdown 或多余文字
+2) 把 paper_card、evidence_ledger、method_flow、experiment_setup、section_summaries 全部合并到一个 JSON 输出
+3) section_summaries 必须覆盖所有给定的章节
+
+【输入数据】
+paper_id: {paper_id}
+paper_meta:
+{paper_meta_json}
+
+paper_content (full text, truncated):
+{paper_content}
+
+sections_list (每个章节的标题和内容):
+{sections_json}
+
+【输出 JSON Schema（严格遵守字段名）】
+{{
+  "version": "deep_pack_v1",
+  "paper_id": "{paper_id}",
+  
+  "paper_card": {{
+    "one_line_summary": "一句话总结论文的核心贡献",
+    "contributions": ["贡献1：具体描述", "贡献2：具体描述", "贡献3：具体描述"],
+    "limitations": ["局限性1：具体描述", "局限性2：具体描述"],
+    "applicable_scope": "该方法/结论适用的场景和条件",
+    "repro_risk": "复现风险评估：说明复现该工作可能遇到的困难",
+    "key_takeaways": ["关键要点1", "关键要点2", "关键要点3"]
+  }},
+  
+  "evidence_ledger": {{
+    "claims": [
+      {{
+        "id": "claim_1",
+        "text": "论文的核心主张（用一句话概括）",
+        "evidence_summary": "支撑该主张的证据概述",
+        "evidence_type": "experimental/theoretical/empirical/citation",
+        "strength": "strong/medium/weak",
+        "uncertainty": "from_text/inferred/needs_verify",
+        "alternative_explanations": ["可能的替代解释1"],
+        "risks": ["潜在风险1"],
+        "source_sections": ["该主张来源的章节名"]
+      }}
+    ],
+    "overall_evidence_quality": "strong/medium/weak",
+    "key_assumptions": ["关键假设1", "关键假设2"],
+    "methodology_concerns": ["方法论上的疑虑（如有）"]
+  }},
+  
+  "method_flow": {{
+    "method_name": "方法名称",
+    "overview": "方法概述（1-2句话）",
+    "steps": [
+      {{
+        "step": 1,
+        "name": "步骤名称",
+        "description": "详细描述",
+        "inputs": ["输入1"],
+        "outputs": ["输出1"]
+      }}
+    ],
+    "key_innovations": ["创新点1", "创新点2"],
+    "dependencies": ["依赖的技术/工具1"],
+    "pseudocode": "伪代码（如果适用）"
+  }},
+  
+  "experiment_setup": {{
+    "datasets": [
+      {{
+        "name": "数据集名称",
+        "description": "描述",
+        "size": "数据规模",
+        "split": "训练/验证/测试划分"
+      }}
+    ],
+    "baselines": ["对比方法1", "对比方法2"],
+    "metrics": [
+      {{
+        "name": "指标名称",
+        "description": "指标描述"
+      }}
+    ],
+    "hyperparameters": [
+      {{
+        "name": "参数名",
+        "value": "参数值",
+        "description": "说明"
+      }}
+    ],
+    "training_details": {{
+      "optimizer": "优化器",
+      "learning_rate": "学习率",
+      "batch_size": "批次大小",
+      "epochs": "训练轮数",
+      "hardware": "硬件配置"
+    }},
+    "reproducibility_notes": "复现注意事项"
+  }},
+  
+  "section_summaries": {{
+    "章节标题1": {{
+      "one_liner": "一句话概括",
+      "plain": "通俗版本（2-3句）",
+      "strict": "严格版本（3-5句，包含技术细节）"
+    }},
+    "章节标题2": {{
+      "one_liner": "一句话概括",
+      "plain": "通俗版本（2-3句）",
+      "strict": "严格版本（3-5句，包含技术细节）"
+    }}
+  }}
+}}
+"""
+
+
+# ===== 批量章节摘要 Prompt =====
+BATCH_SECTION_SUMMARY_PROMPT = """你是一个学术论文分析专家。请为以下所有章节一次性生成三层摘要。
+
+【硬性约束】
+1) 只输出 JSON，不要输出任何解释、markdown 或多余文字
+2) 必须为每个给定的章节都生成摘要
+3) 每个摘要包含三层：one_liner（一句话）、plain（通俗2-3句）、strict（严格3-5句含技术细节）
+
+【输入章节列表】
+{sections_json}
+
+【输出 JSON Schema】
+{{
+  "section_summaries": {{
+    "章节标题1": {{
+      "one_liner": "一句话概括本节核心内容",
+      "plain": "通俗版本：用2-3句话，以类比和通俗语言解释本节内容",
+      "strict": "严格版本：用3-5句话，包含精确的技术细节、数学定义、关键假设等"
+    }},
+    "章节标题2": {{
+      "one_liner": "...",
+      "plain": "...",
+      "strict": "..."
+    }}
+  }}
+}}
+
+只输出JSON，不要其他内容。
+"""

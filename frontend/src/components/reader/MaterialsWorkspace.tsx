@@ -22,6 +22,12 @@ import type {
   SkimCard as SkimCardType,
   TeachingSkimPack,
   TeachingSkimGroup,
+  SkimPack,
+  DeepPack,
+  KeyFigure,
+  EvidenceLedgerData,
+  MethodFlowData,
+  ExperimentSetupData,
 } from '@/types';
 import { Button, Badge } from '@/components/common';
 import { SkimCard } from '@/components/cards/SkimCard';
@@ -107,12 +113,15 @@ export function MaterialsWorkspace({
   const [skimError, setSkimError] = useState<string | null>(null);
   const [teachingSkim, setTeachingSkim] = useState<TeachingSkimPack | null>(null);
   const [teachingSkimLoading, setTeachingSkimLoading] = useState(false);
+  const [skimPack, setSkimPack] = useState<SkimPack | null>(null);  // 统一粗读包
 
   // ========= 精读包（Deep Pack） =========
   const [paperCard, setPaperCard] = useState<PaperCardFull | null>(null);
   const [paperCardLoading, setPaperCardLoading] = useState(false);
   const [paperCardSaving, setPaperCardSaving] = useState(false);
   const [deepError, setDeepError] = useState<string | null>(null);
+  const [deepPack, setDeepPack] = useState<DeepPack | null>(null);  // 统一精读包
+  const [deepPackLoading, setDeepPackLoading] = useState(false);  // 统一精读包加载状态
 
   const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
   const [checklistLoading, setChecklistLoading] = useState(false);
@@ -175,6 +184,51 @@ export function MaterialsWorkspace({
     }
   }, [paperId]);
 
+  // 使用统一 API 生成完整粗读包（1 次 LLM 调用）
+  const generateSkimPackUnified = useCallback(async () => {
+    setSkimError(null);
+    setSkimLoading(true);
+    try {
+      // 准备章节大纲
+      const sectionsOutline = sectionAnchors.map(a => ({
+        title: getSectionName(a),
+        level: a.section_level || 1,
+      }));
+
+      const res = await enhanceApiExtended.generateSkimPack(paperId, { sections_outline: sectionsOutline });
+      const pack = res.skim_pack;
+      
+      // 解包设置状态
+      setSkimPack(pack);
+      setSkimCard(pack.skim_card);
+      // 转换 key_figures 格式
+      setKeyFigures(pack.key_figures?.map((f: KeyFigure, idx: number) => ({
+        anchor_id: f.id || `fig_${idx}`,
+        type: 'figure' as const,
+        caption: f.caption,
+        figure_number: f.id,
+        section: f.importance,
+      })) || []);
+      // 设置 teaching_skim
+      if (pack.teaching_skim) {
+        setTeachingSkim({
+          version: pack.version,
+          paper_id: pack.paper_id,
+          route_scope: { type: 'full', sections: scopedSections },
+          cards: pack.teaching_skim.cards || [],
+          tables: pack.teaching_skim.tables || [],
+          next_steps: pack.teaching_skim.next_steps || [],
+        });
+      }
+    } catch (e) {
+      console.error('生成粗读包失败:', e);
+      setSkimError('生成粗读包失败，请重试');
+    } finally {
+      setSkimLoading(false);
+    }
+  }, [paperId, sectionAnchors, scopedSections]);
+
+  // 保留原有的分步生成（兼容）
   const generateSkimPack = useCallback(async (force: boolean = false) => {
     setSkimError(null);
     setSkimLoading(true);
@@ -424,6 +478,35 @@ export function MaterialsWorkspace({
     cancelSummariesRef.current = true;
   }, []);
 
+  // 使用统一 API 生成完整精读包（1 次 LLM 调用）
+  const generateDeepPackUnified = useCallback(async () => {
+    setDeepError(null);
+    setDeepPackLoading(true);
+    try {
+      // 准备章节数据
+      const sectionsData = scopedSections.map(sectionName => ({
+        title: sectionName,
+        content: buildSectionContent({ paper, anchors, sectionName }),
+      }));
+
+      const res = await enhanceApiExtended.generateDeepPack(paperId, { sections: sectionsData });
+      const pack = res.deep_pack;
+      
+      // 解包设置状态
+      setDeepPack(pack);
+      setPaperCard(pack.paper_card);
+      // 设置章节摘要
+      setSectionSummaries(pack.section_summaries || {});
+      
+    } catch (e) {
+      console.error('生成精读包失败:', e);
+      setDeepError('生成精读包失败，请重试');
+    } finally {
+      setDeepPackLoading(false);
+    }
+  }, [paperId, scopedSections, paper, anchors]);
+
+  // 保留原有的分步生成（兼容）
   const generateDeepPack = useCallback(async () => {
     setDeepError(null);
     // 顺序执行：PaperCard -> Ledger -> Checklist -> Strict summaries（路线范围）
@@ -501,50 +584,31 @@ export function MaterialsWorkspace({
           <>
             <div className="bg-white border border-gray-200 rounded-xl p-4">
               <div className="flex items-center justify-between gap-3">
-                <div className="text-sm font-medium text-gray-900">一键生成粗读包</div>
+                <div>
+                  <div className="text-sm font-medium text-gray-900">一键生成粗读包（推荐）</div>
+                  <div className="text-xs text-gray-500 mt-0.5">1 次 LLM 调用，包含决策卡 + 关键图表 + 教学粗读</div>
+                </div>
                 <div className="flex items-center gap-2">
                   <Button
                     size="sm"
-                    onClick={() => generateSkimPack(false)}
+                    onClick={generateSkimPackUnified}
                     disabled={skimLoading}
                   >
                     {skimLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
-                    {skimCard ? '刷新粗读包' : '生成粗读包'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={generateTeachingSkim}
-                    disabled={teachingSkimLoading || summaryLoading}
-                    title="生成带读式教学粗读（结构化卡片集合）"
-                  >
-                    {teachingSkimLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <GraduationCap className="w-4 h-4 mr-2" />}
-                    生成教学粗读
+                    {skimPack ? '重新生成' : '一键生成'}
                   </Button>
                   <Button
                     size="sm"
                     variant="secondary"
-                    onClick={() => generateSectionSummaries('plain')}
-                    disabled={summaryLoading}
-                    title="按路线范围生成章节“通俗版”摘要"
+                    onClick={() => generateSkimPack(false)}
+                    disabled={skimLoading}
+                    title="分步生成（兼容旧版）"
                   >
-                    {summaryLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
-                    生成章节摘要
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    分步生成
                   </Button>
-                  {summaryLoading && (
-                    <Button size="sm" variant="secondary" onClick={cancelSectionSummaries}>
-                      <X className="w-4 h-4 mr-2" />
-                      取消
-                    </Button>
-                  )}
                 </div>
               </div>
-
-              {summaryLoading && (
-                <div className="mt-3 text-xs text-gray-500">
-                  正在生成章节摘要：{summaryProgress.done}/{summaryProgress.total}
-                  {summaryProgress.current ? `（${summaryProgress.current}）` : ''}
-                </div>
-              )}
             </div>
 
             {skimCard ? (
@@ -562,12 +626,13 @@ export function MaterialsWorkspace({
                   <div className="text-sm font-medium text-gray-900">教学粗读（带读稿 · 结构化）</div>
                   <div className="text-xs text-gray-500 mt-1">
                     少而精、叙事连续（Why→Insight→What→How→Results→Takeaways），并自动生成可选探索方向（Next steps）。
+                    <br />已整合到「一键生成粗读包」中。或可单独生成：
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Button size="sm" onClick={generateTeachingSkim} disabled={teachingSkimLoading || summaryLoading}>
-                    {teachingSkimLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
-                    {teachingSkim ? '重新生成' : '生成'}
+                  <Button size="sm" variant="secondary" onClick={generateTeachingSkim} disabled={teachingSkimLoading || summaryLoading}>
+                    {teachingSkimLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <GraduationCap className="w-4 h-4 mr-2" />}
+                    {teachingSkim ? '重新生成' : '单独生成'}
                   </Button>
                 </div>
               </div>
@@ -792,40 +857,35 @@ export function MaterialsWorkspace({
           <>
             <div className="bg-white border border-gray-200 rounded-xl p-4">
               <div className="flex items-center justify-between gap-3">
-                <div className="text-sm font-medium text-gray-900">一键生成精读包</div>
+                <div>
+                  <div className="text-sm font-medium text-gray-900">一键生成精读包（推荐）</div>
+                  <div className="text-xs text-gray-500 mt-0.5">1 次 LLM 调用，包含 PaperCard + 证据台账 + 方法流程 + 实验设置 + 章节摘要</div>
+                </div>
                 <div className="flex items-center gap-2">
-                  <Button size="sm" onClick={generateDeepPack} disabled={paperCardLoading || checklistLoading || summaryLoading}>
-                    {(paperCardLoading || checklistLoading || summaryLoading) ? (
+                  <Button size="sm" onClick={generateDeepPackUnified} disabled={deepPackLoading}>
+                    {deepPackLoading ? (
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                     ) : (
                       <Sparkles className="w-4 h-4 mr-2" />
                     )}
-                    生成精读包
+                    {deepPack ? '重新生成' : '一键生成'}
                   </Button>
                   <Button
                     size="sm"
                     variant="secondary"
-                    onClick={() => generateSectionSummaries('strict')}
-                    disabled={summaryLoading}
-                    title="按路线范围生成章节“严格版”摘要"
+                    onClick={generateDeepPack}
+                    disabled={paperCardLoading || checklistLoading || summaryLoading}
+                    title="分步生成（兼容旧版，多次 LLM 调用）"
                   >
-                    {summaryLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
-                    生成严格摘要
+                    {(paperCardLoading || checklistLoading || summaryLoading) ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                    )}
+                    分步生成
                   </Button>
-                  {summaryLoading && (
-                    <Button size="sm" variant="secondary" onClick={cancelSectionSummaries}>
-                      <X className="w-4 h-4 mr-2" />
-                      取消
-                    </Button>
-                  )}
                 </div>
               </div>
-              {summaryLoading && (
-                <div className="mt-3 text-xs text-gray-500">
-                  正在生成章节摘要：{summaryProgress.done}/{summaryProgress.total}
-                  {summaryProgress.current ? `（${summaryProgress.current}）` : ''}
-                </div>
-              )}
             </div>
 
             {/* PaperCard（卡片化展示） */}
@@ -892,12 +952,172 @@ export function MaterialsWorkspace({
               )}
             </div>
 
-            {/* Evidence Ledger（表格化） */}
+            {/* 方法流程（从 DeepPack 解包） */}
+            {deepPack?.method_flow && (
+              <div className="bg-white border border-gray-200 rounded-xl p-4">
+                <div className="text-sm font-medium text-gray-900 mb-3">方法流程</div>
+                <div className="space-y-3">
+                  <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                    <div className="text-xs text-purple-600 mb-1">方法名称</div>
+                    <div className="text-sm text-purple-900 font-medium">{deepPack.method_flow.method_name}</div>
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded-lg">
+                    <div className="text-xs text-gray-500 mb-1">概述</div>
+                    <div className="text-sm text-gray-800">{deepPack.method_flow.overview}</div>
+                  </div>
+                  {deepPack.method_flow.steps?.length > 0 && (
+                    <div className="p-3 border border-gray-200 rounded-lg">
+                      <div className="text-xs text-gray-500 mb-2">步骤流程</div>
+                      <div className="space-y-2">
+                        {deepPack.method_flow.steps.map((step, idx) => (
+                          <div key={idx} className="flex gap-3 p-2 bg-white border border-gray-100 rounded">
+                            <div className="w-6 h-6 flex items-center justify-center bg-indigo-100 text-indigo-700 rounded-full text-xs font-medium shrink-0">
+                              {step.step}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium text-gray-900 text-sm">{step.name}</div>
+                              <div className="text-xs text-gray-600 mt-1">{step.description}</div>
+                              {step.inputs?.length > 0 && (
+                                <div className="text-xs text-gray-500 mt-1">输入：{step.inputs.join('、')}</div>
+                              )}
+                              {step.outputs?.length > 0 && (
+                                <div className="text-xs text-gray-500">输出：{step.outputs.join('、')}</div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {deepPack.method_flow.key_innovations?.length > 0 && (
+                    <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <div className="text-xs text-green-700 mb-1">关键创新点</div>
+                      <ul className="space-y-1 text-sm text-green-900">
+                        {deepPack.method_flow.key_innovations.map((i, idx) => (
+                          <li key={idx}>• {i}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 实验设置（从 DeepPack 解包） */}
+            {deepPack?.experiment_setup && (
+              <div className="bg-white border border-gray-200 rounded-xl p-4">
+                <div className="text-sm font-medium text-gray-900 mb-3">实验设置</div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {deepPack.experiment_setup.datasets?.length > 0 && (
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <div className="text-xs text-blue-700 mb-2">数据集</div>
+                      <ul className="space-y-1 text-sm text-blue-900">
+                        {deepPack.experiment_setup.datasets.map((d, idx) => (
+                          <li key={idx}>
+                            <span className="font-medium">{d.name}</span>
+                            {d.size && <span className="text-xs text-blue-700 ml-1">({d.size})</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {deepPack.experiment_setup.baselines?.length > 0 && (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                      <div className="text-xs text-amber-700 mb-2">基线方法</div>
+                      <div className="text-sm text-amber-900">{deepPack.experiment_setup.baselines.join('、')}</div>
+                    </div>
+                  )}
+                  {deepPack.experiment_setup.metrics?.length > 0 && (
+                    <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <div className="text-xs text-green-700 mb-2">评估指标</div>
+                      <ul className="space-y-1 text-sm text-green-900">
+                        {deepPack.experiment_setup.metrics.map((m, idx) => (
+                          <li key={idx}>{m.name}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {deepPack.experiment_setup.training_details && (
+                    <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                      <div className="text-xs text-purple-700 mb-2">训练细节</div>
+                      <div className="text-sm text-purple-900 space-y-1">
+                        {deepPack.experiment_setup.training_details.optimizer && (
+                          <div>优化器：{deepPack.experiment_setup.training_details.optimizer}</div>
+                        )}
+                        {deepPack.experiment_setup.training_details.learning_rate && (
+                          <div>学习率：{deepPack.experiment_setup.training_details.learning_rate}</div>
+                        )}
+                        {deepPack.experiment_setup.training_details.batch_size && (
+                          <div>批次大小：{deepPack.experiment_setup.training_details.batch_size}</div>
+                        )}
+                        {deepPack.experiment_setup.training_details.hardware && (
+                          <div>硬件：{deepPack.experiment_setup.training_details.hardware}</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {deepPack.experiment_setup.reproducibility_notes && (
+                  <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                    <div className="text-xs text-red-700 mb-1">复现注意事项</div>
+                    <div className="text-sm text-red-900">{deepPack.experiment_setup.reproducibility_notes}</div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 证据台账（从 DeepPack 解包 + EvidenceLedger 组件） */}
+            {deepPack?.evidence_ledger && (
+              <div className="bg-white border border-gray-200 rounded-xl p-4">
+                <div className="text-sm font-medium text-gray-900 mb-3">证据台账（来自精读包）</div>
+                <div className="p-3 bg-gray-50 rounded-lg mb-3">
+                  <div className="flex items-center gap-4 text-sm">
+                    <span className="text-gray-600">整体证据质量：</span>
+                    <Badge 
+                      variant={deepPack.evidence_ledger.overall_evidence_quality === 'strong' ? 'default' : 
+                               deepPack.evidence_ledger.overall_evidence_quality === 'weak' ? 'danger' : 'secondary'}
+                    >
+                      {deepPack.evidence_ledger.overall_evidence_quality === 'strong' ? '强' : 
+                       deepPack.evidence_ledger.overall_evidence_quality === 'weak' ? '弱' : '中等'}
+                    </Badge>
+                  </div>
+                  {deepPack.evidence_ledger.key_assumptions?.length > 0 && (
+                    <div className="mt-2 text-sm text-gray-700">
+                      <span className="text-gray-500">关键假设：</span>
+                      {deepPack.evidence_ledger.key_assumptions.join('；')}
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  {deepPack.evidence_ledger.claims?.slice(0, 5).map(claim => (
+                    <div key={claim.id} className="p-3 border border-gray-200 rounded-lg">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1">
+                          <div className="text-sm text-gray-900 font-medium">{claim.text}</div>
+                          {claim.evidence_summary && (
+                            <div className="text-xs text-gray-600 mt-1">{claim.evidence_summary}</div>
+                          )}
+                        </div>
+                        <Badge 
+                          variant={claim.strength === 'strong' ? 'default' : 
+                                   claim.strength === 'weak' ? 'danger' : 'secondary'}
+                          size="sm"
+                        >
+                          {claim.strength === 'strong' ? '强' : claim.strength === 'weak' ? '弱' : '中'}
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Evidence Ledger（独立组件，支持交互编辑） */}
             <div className="bg-white border border-gray-200 rounded-xl">
               <div className="px-4 py-3 border-b border-gray-100">
-                <div className="text-sm font-medium text-gray-900">主张-证据台账（全文/路线范围）</div>
+                <div className="text-sm font-medium text-gray-900">主张-证据台账（可编辑）</div>
                 <div className="text-xs text-gray-500 mt-1">
-                  点击“生成台账”后，你可以逐条编辑主张、调整证据强度，并跳回原文锚点核对。
+                  点击"生成台账"后，你可以逐条编辑主张、调整证据强度，并跳回原文锚点核对。
                 </div>
               </div>
               <div className="p-2">
@@ -980,5 +1200,7 @@ export function MaterialsWorkspace({
     </div>
   );
 }
+
+
 
 

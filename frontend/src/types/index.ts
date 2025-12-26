@@ -478,3 +478,116 @@ export interface TeachingSkimPack {
   tables: TeachingSkimTable[];
   next_steps: TeachingSkimNextStep[];
 }
+
+// ============ Skim Pack（统一粗读包）============
+
+export interface KeyFigure {
+  id: string;
+  caption: string;
+  importance: string;
+  one_liner: string;
+}
+
+export interface SkimPackTeachingSkim {
+  cards: TeachingSkimCard[];
+  tables: TeachingSkimTable[];
+  next_steps: TeachingSkimNextStep[];
+}
+
+export interface SkimPack {
+  version: string;
+  paper_id: string;
+  skim_card: SkimCard;
+  key_figures: KeyFigure[];
+  teaching_skim: SkimPackTeachingSkim;
+}
+
+export interface SkimPackRequest {
+  sections_outline: { title: string; level?: number }[];
+}
+
+export interface SkimPackResponse {
+  skim_pack: SkimPack;
+  cached: boolean;
+}
+
+// ============ Deep Pack（统一精读包）============
+
+export interface ClaimItem {
+  id: string;
+  text: string;
+  evidence_summary: string;
+  evidence_type: 'experimental' | 'theoretical' | 'empirical' | 'citation';
+  strength: 'strong' | 'medium' | 'weak';
+  uncertainty: 'from_text' | 'inferred' | 'needs_verify';
+  alternative_explanations: string[];
+  risks: string[];
+  source_sections: string[];
+}
+
+export interface EvidenceLedgerData {
+  claims: ClaimItem[];
+  overall_evidence_quality: 'strong' | 'medium' | 'weak';
+  key_assumptions: string[];
+  methodology_concerns: string[];
+}
+
+export interface MethodStep {
+  step: number;
+  name: string;
+  description: string;
+  inputs: string[];
+  outputs: string[];
+}
+
+export interface MethodFlowData {
+  method_name: string;
+  overview: string;
+  steps: MethodStep[];
+  key_innovations: string[];
+  dependencies: string[];
+  pseudocode: string;
+}
+
+export interface ExperimentSetupData {
+  datasets: DatasetInfo[];
+  baselines: string[];
+  metrics: MetricInfo[];
+  hyperparameters: HyperparameterInfo[];
+  training_details?: TrainingDetails;
+  reproducibility_notes: string;
+}
+
+export interface DeepPack {
+  version: string;
+  paper_id: string;
+  paper_card: PaperCardFull;
+  evidence_ledger: EvidenceLedgerData;
+  method_flow: MethodFlowData;
+  experiment_setup: ExperimentSetupData;
+  section_summaries: Record<string, SectionSummaryLeveled>;
+}
+
+export interface SectionInfo {
+  title: string;
+  content: string;
+}
+
+export interface DeepPackRequest {
+  sections: SectionInfo[];
+}
+
+export interface DeepPackResponse {
+  deep_pack: DeepPack;
+  cached: boolean;
+}
+
+// ============ Batch Section Summary（批量章节摘要）============
+
+export interface BatchSectionSummaryRequest {
+  sections: SectionInfo[];
+}
+
+export interface BatchSectionSummaryResponse {
+  section_summaries: Record<string, SectionSummaryLeveled>;
+}

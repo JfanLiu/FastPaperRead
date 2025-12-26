@@ -142,3 +142,196 @@ class TeachingSkimGenerateRequest(BaseModel):
 
 class TeachingSkimGenerateResponse(BaseModel):
     teaching_skim: TeachingSkimPack
+
+
+# =========================
+# Skim Pack（统一粗读包）
+# =========================
+
+class SkimCardData(BaseModel):
+    """SkimCard 数据"""
+    research_question: str = ""
+    contributions: List[str] = Field(default_factory=list)
+    evidence_strength: str = "medium"
+    evidence_strength_reason: str = ""
+    red_flags: List[str] = Field(default_factory=list)
+    recommended_route: str = "skim"
+    recommended_sections: List[str] = Field(default_factory=list)
+
+
+class KeyFigure(BaseModel):
+    """关键图表信息"""
+    id: str
+    caption: str = ""
+    importance: str = ""
+    one_liner: str = ""
+
+
+class SkimPackTeachingSkim(BaseModel):
+    """粗读包中的 Teaching Skim 部分"""
+    cards: List[TeachingSkimCard] = Field(default_factory=list)
+    tables: List[TeachingSkimTable] = Field(default_factory=list)
+    next_steps: List[TeachingSkimNextStep] = Field(default_factory=list)
+
+
+class SkimPack(BaseModel):
+    """统一粗读包"""
+    version: str = "skim_pack_v1"
+    paper_id: str
+    skim_card: SkimCardData
+    key_figures: List[KeyFigure] = Field(default_factory=list)
+    teaching_skim: SkimPackTeachingSkim
+
+
+class SkimPackRequest(BaseModel):
+    """粗读包生成请求"""
+    sections_outline: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class SkimPackResponse(BaseModel):
+    """粗读包生成响应"""
+    skim_pack: SkimPack
+    cached: bool = False
+
+
+# =========================
+# Deep Pack（统一精读包）
+# =========================
+
+class PaperCardData(BaseModel):
+    """PaperCard 数据"""
+    one_line_summary: str = ""
+    contributions: List[str] = Field(default_factory=list)
+    limitations: List[str] = Field(default_factory=list)
+    applicable_scope: str = ""
+    repro_risk: str = ""
+    key_takeaways: List[str] = Field(default_factory=list)
+
+
+class ClaimItem(BaseModel):
+    """主张条目"""
+    id: str
+    text: str
+    evidence_summary: str = ""
+    evidence_type: str = "empirical"
+    strength: str = "medium"
+    uncertainty: str = "inferred"
+    alternative_explanations: List[str] = Field(default_factory=list)
+    risks: List[str] = Field(default_factory=list)
+    source_sections: List[str] = Field(default_factory=list)
+
+
+class EvidenceLedgerData(BaseModel):
+    """证据台账数据"""
+    claims: List[ClaimItem] = Field(default_factory=list)
+    overall_evidence_quality: str = "medium"
+    key_assumptions: List[str] = Field(default_factory=list)
+    methodology_concerns: List[str] = Field(default_factory=list)
+
+
+class MethodStep(BaseModel):
+    """方法步骤"""
+    step: int
+    name: str
+    description: str = ""
+    inputs: List[str] = Field(default_factory=list)
+    outputs: List[str] = Field(default_factory=list)
+
+
+class MethodFlowData(BaseModel):
+    """方法流程数据"""
+    method_name: str = ""
+    overview: str = ""
+    steps: List[MethodStep] = Field(default_factory=list)
+    key_innovations: List[str] = Field(default_factory=list)
+    dependencies: List[str] = Field(default_factory=list)
+    pseudocode: str = ""
+
+
+class DatasetInfo(BaseModel):
+    """数据集信息"""
+    name: str
+    description: str = ""
+    size: str = ""
+    split: str = ""
+
+
+class MetricInfo(BaseModel):
+    """指标信息"""
+    name: str
+    description: str = ""
+
+
+class HyperparameterInfo(BaseModel):
+    """超参数信息"""
+    name: str
+    value: str = ""
+    description: str = ""
+
+
+class TrainingDetails(BaseModel):
+    """训练细节"""
+    optimizer: str = ""
+    learning_rate: str = ""
+    batch_size: str = ""
+    epochs: str = ""
+    hardware: str = ""
+
+
+class ExperimentSetupData(BaseModel):
+    """实验设置数据"""
+    datasets: List[DatasetInfo] = Field(default_factory=list)
+    baselines: List[str] = Field(default_factory=list)
+    metrics: List[MetricInfo] = Field(default_factory=list)
+    hyperparameters: List[HyperparameterInfo] = Field(default_factory=list)
+    training_details: Optional[TrainingDetails] = None
+    reproducibility_notes: str = ""
+
+
+class SectionSummaryLeveled(BaseModel):
+    """三层章节摘要"""
+    one_liner: str = ""
+    plain: str = ""
+    strict: str = ""
+
+
+class DeepPack(BaseModel):
+    """统一精读包"""
+    version: str = "deep_pack_v1"
+    paper_id: str
+    paper_card: PaperCardData
+    evidence_ledger: EvidenceLedgerData
+    method_flow: MethodFlowData
+    experiment_setup: ExperimentSetupData
+    section_summaries: Dict[str, SectionSummaryLeveled] = Field(default_factory=dict)
+
+
+class SectionInfo(BaseModel):
+    """章节信息"""
+    title: str
+    content: str
+
+
+class DeepPackRequest(BaseModel):
+    """精读包生成请求"""
+    sections: List[SectionInfo] = Field(default_factory=list)
+
+
+class DeepPackResponse(BaseModel):
+    """精读包生成响应"""
+    deep_pack: DeepPack
+    cached: bool = False
+
+
+# =========================
+# Batch Section Summary（批量章节摘要）
+# =========================
+
+class BatchSectionSummaryRequest(BaseModel):
+    """批量章节摘要请求"""
+    sections: List[SectionInfo]
+
+
+class BatchSectionSummaryResponse(BaseModel):
+    """批量章节摘要响应"""
+    section_summaries: Dict[str, SectionSummaryLeveled]

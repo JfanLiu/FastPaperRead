@@ -305,3 +305,101 @@ class ContentEnhancer:
             {"role": "user", "content": prompt}
         ])
         return self._parse_json_response(response)
+    
+    async def generate_skim_pack(
+        self,
+        paper_id: str,
+        paper_meta: Dict[str, Any],
+        paper_content: str,
+        sections_outline: List[Dict[str, Any]]
+    ) -> Dict:
+        """
+        统一生成粗读包（Skim Pack）：
+        - skim_card
+        - key_figures
+        - teaching_skim (cards + tables + next_steps)
+        
+        一次 LLM 调用，输出完整粗读材料
+        """
+        try:
+            paper_meta_json = json.dumps(paper_meta, ensure_ascii=False)
+            sections_outline_json = json.dumps(sections_outline, ensure_ascii=False)
+        except Exception:
+            paper_meta_json = "{}"
+            sections_outline_json = "[]"
+        
+        prompt = prompts.SKIM_PACK_PROMPT.format(
+            paper_id=paper_id,
+            paper_meta_json=paper_meta_json,
+            paper_content=paper_content[:12000],  # 留足上下文
+            sections_outline_json=sections_outline_json
+        )
+        
+        response = await self.llm.chat_completion([
+            {"role": "system", "content": "你是一个论文带读/教学讲解专家。"},
+            {"role": "user", "content": prompt}
+        ])
+        return self._parse_json_response(response)
+    
+    async def generate_deep_pack(
+        self,
+        paper_id: str,
+        paper_meta: Dict[str, Any],
+        paper_content: str,
+        sections: List[Dict[str, Any]]
+    ) -> Dict:
+        """
+        统一生成精读包（Deep Pack）：
+        - paper_card
+        - evidence_ledger
+        - method_flow
+        - experiment_setup
+        - section_summaries (所有章节的三层摘要)
+        
+        一次 LLM 调用，输出完整精读材料
+        """
+        try:
+            paper_meta_json = json.dumps(paper_meta, ensure_ascii=False)
+            sections_json = json.dumps(sections, ensure_ascii=False)
+        except Exception:
+            paper_meta_json = "{}"
+            sections_json = "[]"
+        
+        prompt = prompts.DEEP_PACK_PROMPT.format(
+            paper_id=paper_id,
+            paper_meta_json=paper_meta_json,
+            paper_content=paper_content[:15000],  # 精读需要更多上下文
+            sections_json=sections_json[:8000]  # 章节列表也可能很长
+        )
+        
+        response = await self.llm.chat_completion([
+            {"role": "system", "content": "你是一个论文深度分析专家。"},
+            {"role": "user", "content": prompt}
+        ])
+        return self._parse_json_response(response)
+    
+    async def batch_section_summary(
+        self,
+        sections: List[Dict[str, Any]]
+    ) -> Dict:
+        """
+        批量生成所有章节的三层摘要
+        
+        sections: [{"title": "章节标题", "content": "章节内容"}, ...]
+        
+        一次 LLM 调用，输出所有章节摘要
+        """
+        try:
+            sections_json = json.dumps(sections, ensure_ascii=False)
+        except Exception:
+            sections_json = "[]"
+        
+        prompt = prompts.BATCH_SECTION_SUMMARY_PROMPT.format(
+            sections_json=sections_json[:15000]  # 控制总长度
+        )
+        
+        response = await self.llm.chat_completion([
+            {"role": "system", "content": "你是一个学术论文分析专家。"},
+            {"role": "user", "content": prompt}
+        ])
+        return self._parse_json_response(response)
