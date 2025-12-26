@@ -17,6 +17,118 @@ from ...schemas.skim import SkimCardResponse, SkimDecisionRequest
 router = APIRouter()
 
 
+# ============================================
+# 阅读队列 API
+# （放在动态路由前，避免 /queue 被解析成 paper_id）
+# ============================================
+
+@router.get("/queue", response_model=dict)
+async def get_reading_queue(
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db)
+):
+    """
+    获取待读队列
+    
+    返回按优先级和添加时间排序的论文列表
+    """
+    queue_items = db.query(ReadingQueueModel).order_by(
+        desc(ReadingQueueModel.priority),
+        ReadingQueueModel.added_at
+    ).limit(limit).all()
+    
+    papers = []
+    for item in queue_items:
+        paper = paper_crud.get(db, item.paper_id)
+        if paper:
+            papers.append({
+                "queue_id": item.id,
+                "paper_id": paper.id,
+                "title": paper.title,
+                "authors": paper.authors,
+                "year": paper.year,
+                "status": paper.status.value if paper.status else "unknown",
+                "quality_grade": paper.quality_grade,
+                "priority": item.priority,
+                "note": item.note,
+                "added_at": item.added_at.isoformat() if item.added_at else None,
+            })
+    
+    return {
+        "items": papers,
+        "total": len(papers)
+    }
+
+
+@router.post("/queue/{paper_id}", response_model=dict)
+async def add_to_queue(
+    paper_id: str,
+    priority: int = Query(0, ge=0, le=10),
+    note: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    将论文加入阅读队列
+    """
+    paper = paper_crud.get(db, paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="论文不存在")
+    
+    # 检查是否已在队列中
+    existing = db.query(ReadingQueueModel).filter(
+        ReadingQueueModel.paper_id == paper_id
+    ).first()
+    
+    if existing:
+        # 更新优先级和备注
+        existing.priority = priority
+        if note is not None:
+            existing.note = note
+        db.commit()
+        return {
+            "message": "已更新队列项",
+            "queue_id": existing.id,
+            "paper_id": paper_id
+        }
+    
+    # 添加到队列
+    queue_item = ReadingQueueModel(
+        paper_id=paper_id,
+        priority=priority,
+        note=note
+    )
+    db.add(queue_item)
+    db.commit()
+    db.refresh(queue_item)
+    
+    return {
+        "message": "已加入阅读队列",
+        "queue_id": queue_item.id,
+        "paper_id": paper_id
+    }
+
+
+@router.delete("/queue/{paper_id}")
+async def remove_from_queue(
+    paper_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    从阅读队列移除论文
+    """
+    queue_item = db.query(ReadingQueueModel).filter(
+        ReadingQueueModel.paper_id == paper_id
+    ).first()
+    
+    if not queue_item:
+        raise HTTPException(status_code=404, detail="论文不在队列中")
+    
+    db.delete(queue_item)
+    db.commit()
+    
+    return {"message": "已从队列移除", "paper_id": paper_id}
+
+
 @router.post("/{paper_id}/generate", response_model=dict)
 async def generate_skim_card(
     paper_id: str,
@@ -214,117 +326,6 @@ async def make_skim_decision(
         "decision": request.decision,
         "new_status": new_status.value
     }
-
-
-# ============================================
-# 阅读队列 API
-# ============================================
-
-@router.get("/queue", response_model=dict)
-async def get_reading_queue(
-    limit: int = Query(50, ge=1, le=100),
-    db: Session = Depends(get_db)
-):
-    """
-    获取待读队列
-    
-    返回按优先级和添加时间排序的论文列表
-    """
-    queue_items = db.query(ReadingQueueModel).order_by(
-        desc(ReadingQueueModel.priority),
-        ReadingQueueModel.added_at
-    ).limit(limit).all()
-    
-    papers = []
-    for item in queue_items:
-        paper = paper_crud.get(db, item.paper_id)
-        if paper:
-            papers.append({
-                "queue_id": item.id,
-                "paper_id": paper.id,
-                "title": paper.title,
-                "authors": paper.authors,
-                "year": paper.year,
-                "status": paper.status.value if paper.status else "unknown",
-                "quality_grade": paper.quality_grade,
-                "priority": item.priority,
-                "note": item.note,
-                "added_at": item.added_at.isoformat() if item.added_at else None,
-            })
-    
-    return {
-        "items": papers,
-        "total": len(papers)
-    }
-
-
-@router.post("/queue/{paper_id}", response_model=dict)
-async def add_to_queue(
-    paper_id: str,
-    priority: int = Query(0, ge=0, le=10),
-    note: Optional[str] = None,
-    db: Session = Depends(get_db)
-):
-    """
-    将论文加入阅读队列
-    """
-    paper = paper_crud.get(db, paper_id)
-    if not paper:
-        raise HTTPException(status_code=404, detail="论文不存在")
-    
-    # 检查是否已在队列中
-    existing = db.query(ReadingQueueModel).filter(
-        ReadingQueueModel.paper_id == paper_id
-    ).first()
-    
-    if existing:
-        # 更新优先级和备注
-        existing.priority = priority
-        if note is not None:
-            existing.note = note
-        db.commit()
-        return {
-            "message": "已更新队列项",
-            "queue_id": existing.id,
-            "paper_id": paper_id
-        }
-    
-    # 添加到队列
-    queue_item = ReadingQueueModel(
-        paper_id=paper_id,
-        priority=priority,
-        note=note
-    )
-    db.add(queue_item)
-    db.commit()
-    db.refresh(queue_item)
-    
-    return {
-        "message": "已加入阅读队列",
-        "queue_id": queue_item.id,
-        "paper_id": paper_id
-    }
-
-
-@router.delete("/queue/{paper_id}")
-async def remove_from_queue(
-    paper_id: str,
-    db: Session = Depends(get_db)
-):
-    """
-    从阅读队列移除论文
-    """
-    queue_item = db.query(ReadingQueueModel).filter(
-        ReadingQueueModel.paper_id == paper_id
-    ).first()
-    
-    if not queue_item:
-        raise HTTPException(status_code=404, detail="论文不在队列中")
-    
-    db.delete(queue_item)
-    db.commit()
-    
-    return {"message": "已从队列移除", "paper_id": paper_id}
 
 
 # ============================================
