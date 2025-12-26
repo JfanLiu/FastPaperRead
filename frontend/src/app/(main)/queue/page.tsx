@@ -139,7 +139,7 @@ export default function QueuePage() {
       <div className="max-w-4xl mx-auto px-6 py-8">
         {items.length === 0 ? (
           <EmptyState
-            icon={BookOpen}
+            icon={<BookOpen className="w-8 h-8 text-gray-400" />}
             title="队列为空"
             description="暂无待读论文，在文献库或 Overview 页面将论文加入队列"
             action={

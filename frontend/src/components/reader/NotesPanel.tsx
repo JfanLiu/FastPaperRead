@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Button, Badge } from '@/components/common';
-import type { Card, Anchor } from '@/types';
+import type { Card, Anchor, UncertaintyLevel } from '@/types';
 import {
   Plus,
   FileText,
@@ -32,7 +32,6 @@ interface NotesPanelProps {
 }
 
 type CardType = 'evidence' | 'method' | 'paper' | 'note';
-type UncertaintyLevel = 'from_text' | 'inferred' | 'needs_verify';
 
 const cardTypeConfig: Record<CardType, { label: string; color: string; bgColor: string }> = {
   evidence: { label: '证据卡', color: 'text-emerald-700', bgColor: 'bg-emerald-50' },
@@ -44,7 +43,7 @@ const cardTypeConfig: Record<CardType, { label: string; color: string; bgColor: 
 const uncertaintyConfig: Record<UncertaintyLevel, { label: string; icon: React.ElementType; color: string }> = {
   from_text: { label: '来自原文', icon: CheckCircle, color: 'text-emerald-600' },
   inferred: { label: '推测补全', icon: Sparkles, color: 'text-amber-600' },
-  needs_verify: { label: '需确认', icon: HelpCircle, color: 'text-red-600' },
+  needs_confirm: { label: '需确认', icon: HelpCircle, color: 'text-red-600' },
 };
 
 export function NotesPanel({

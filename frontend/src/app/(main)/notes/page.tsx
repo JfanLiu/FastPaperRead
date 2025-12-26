@@ -242,7 +242,7 @@ export default function NotesPage() {
           </div>
         ) : cards.length === 0 ? (
           <EmptyState
-            icon={StickyNote}
+            icon={<StickyNote className="w-8 h-8 text-gray-400" />}
             title="暂无卡片"
             description={searchQuery ? '没有找到匹配的卡片' : '开始阅读论文并创建笔记卡片'}
             action={

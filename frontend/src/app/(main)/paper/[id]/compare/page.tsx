@@ -78,7 +78,8 @@ export default function ComparePage() {
       try {
         const result = await paperApi.list({ search: searchQuery, limit: 10 });
         // 过滤掉已添加的论文
-        const filtered = (result.items || result.papers || []).filter(
+        const resultItems = result.items || (result as { papers?: Paper[] }).papers || [];
+        const filtered = resultItems.filter(
           (p: Paper) => !papers.find(existing => existing.id === p.id)
         );
         setSearchResults(filtered);
@@ -132,7 +133,7 @@ export default function ComparePage() {
     
     try {
       // 如果没有保存的集合，先创建一个
-      let setId = compareSetId;
+      let setId: string = compareSetId || '';
       if (!setId) {
         const createResult = await compareApi.createSet(
           `对比: ${papers.map(p => p.title.slice(0, 20)).join(' vs ')}`,

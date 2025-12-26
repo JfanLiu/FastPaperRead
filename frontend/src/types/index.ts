@@ -288,25 +288,29 @@ export interface SectionTree {
 
 export interface SkimDecisionRequest {
   paper_id: string;
-  decision: 'deep_read' | 'focused_read' | 'skip' | 'archive' | 'queue';
+  decision: 'deep_read' | 'focused_read' | 'skip' | 'archive' | 'queue' | 'deepread';
   quality_grade?: string;
+  reading_route?: string;
 }
 
 export interface EnhanceRequest {
-  anchor_id: string;
-  enhance_type: 'term' | 'figure' | 'equation' | 'section_summary';
+  paper_id?: string;
+  anchor_id?: string;
+  enhance_type: 'term' | 'figure' | 'equation' | 'section_summary' | 'paragraph';
   selected_text?: string;
+  level?: 'one_liner' | 'plain' | 'strict';
   use_cache?: boolean;
 }
 
 export interface EnhanceResponse {
-  enhance_type: string;
-  anchor_id: string;
+  enhance_type?: string;
+  anchor_id?: string;
   cached: boolean;
   term?: TermExplanation;
   figure?: FigureExplanation;
   equation?: EquationExplanation;
   summary?: string;
+  explanation?: unknown;
 }
 
 export interface PaginatedResponse<T> {

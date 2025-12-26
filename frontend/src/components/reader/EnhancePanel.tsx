@@ -159,7 +159,7 @@ export function EnhancePanel({
       if (response.term) {
         setTermExplanation(response.term);
       } else if (response.explanation) {
-        setTermExplanation(response.explanation);
+        setTermExplanation(response.explanation as TermExplanation);
       }
     } catch (err: unknown) {
       setError((err as Error).message || '解释失败');
@@ -185,7 +185,7 @@ export function EnhancePanel({
       if (response.figure) {
         setFigureExplanation(response.figure);
       } else if (response.explanation) {
-        setFigureExplanation(response.explanation);
+        setFigureExplanation(response.explanation as FigureExplanation);
       }
     } catch (err: unknown) {
       setError((err as Error).message || '解释失败');
@@ -211,7 +211,7 @@ export function EnhancePanel({
       if (response.equation) {
         setEquationExplanation(response.equation);
       } else if (response.explanation) {
-        setEquationExplanation(response.explanation);
+        setEquationExplanation(response.explanation as EquationExplanation);
       }
     } catch (err: unknown) {
       setError((err as Error).message || '解释失败');
@@ -235,7 +235,7 @@ export function EnhancePanel({
         level: explanationLevel,
       });
       
-      setSectionSummary(response.summary || response.explanation || '');
+      setSectionSummary(response.summary || (response.explanation as string) || '');
     } catch (err: unknown) {
       setError((err as Error).message || '总结失败');
     } finally {
