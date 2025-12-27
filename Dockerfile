@@ -1,6 +1,18 @@
 # Build frontend assets
-FROM node:20-bookworm AS frontend-builder
+FROM ubuntu:latest AS frontend-builder
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    http_proxy= \
+    https_proxy=
+
 WORKDIR /frontend
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        curl ca-certificates gnupg && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY frontend/package*.json ./
 RUN npm ci
@@ -11,19 +23,24 @@ ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 RUN npm run build
 
 # Final runtime image (frontend + backend + PostgreSQL)
-FROM node:20-bookworm
+FROM ubuntu:latest
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    NODE_ENV=production
+    NODE_ENV=production \
+    http_proxy= \
+    https_proxy=
 
 # System dependencies for Python, PostgreSQL and build steps
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         python3 python3-venv python3-pip python3-dev \
         build-essential libpq-dev \
-        gosu curl ca-certificates \
+        gosu curl ca-certificates gnupg && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y --no-install-recommends \
+        nodejs \
         postgresql postgresql-contrib && \
     rm -rf /var/lib/apt/lists/*
 
@@ -41,7 +58,7 @@ COPY backend .
 # Install frontend runtime deps and copy build artifacts
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
-RUN npm ci --omit=dev
+RUN npm ci --include=dev
 COPY --from=frontend-builder /frontend/.next ./.next
 COPY --from=frontend-builder /frontend/public ./public
 COPY --from=frontend-builder /frontend/next.config.ts ./next.config.ts
@@ -69,7 +86,7 @@ ENV POSTGRES_USER=postgres \
     BACKEND_PORT=8000 \
     FRONTEND_PORT=3000 \
     NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1 \
-    UVICORN_WORKERS=2
+    UVICORN_WORKERS=1
 
 EXPOSE 3000 8000 5432
 
