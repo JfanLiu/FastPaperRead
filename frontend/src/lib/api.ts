@@ -444,6 +444,12 @@ export const compareApi = {
     return res.data;
   },
 
+  // 快速对比矩阵（不创建集合）
+  quickMatrix: async (paperIds: string[], dimensions?: string[]) => {
+    const res = await api.post('/compare/quick-matrix', { paper_ids: paperIds, dimensions });
+    return res.data;
+  },
+
   // 快速对比
   quickCompare: async (paperIds: string[], dimensions?: string[]) => {
     const res = await api.post('/compare/quick-compare', null, {

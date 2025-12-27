@@ -12,12 +12,10 @@ import {
   Search,
   GitCompare,
   AlertTriangle,
-  CheckCircle,
   ChevronRight,
   Download,
   RefreshCw,
   Loader2,
-  Save,
   Home,
   ArrowLeft,
 } from 'lucide-react';
@@ -61,8 +59,7 @@ export default function ComparePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Paper[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [compareSetId, setCompareSetId] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     loadCurrentPaper();
@@ -132,66 +129,19 @@ export default function ComparePage() {
     if (papers.length < 2) return;
     
     setIsGenerating(true);
+    setErrorMessage(null);
     
     try {
-      // 如果没有保存的集合，先创建一个
-      let setId: string = compareSetId || '';
-      if (!setId) {
-        const createResult = await compareApi.createSet(
-          `对比: ${papers.map(p => p.title.slice(0, 20)).join(' vs ')}`,
-          papers.map(p => p.id)
-        );
-        setId = createResult.id;
-        setCompareSetId(setId);
-      }
-      
-      // 生成对比矩阵
-      const result = await compareApi.generateMatrix(setId, dimensions);
+      const result = await compareApi.quickMatrix(papers.map(p => p.id), dimensions);
       
       setMatrix(result.matrix || []);
       setConflicts((result.conflicts || []).map((c: { dimension: string }) => c.dimension));
       setSummary(result.summary || '');
     } catch (error) {
       console.error('生成对比失败:', error);
-      // 如果API失败，使用本地模拟
-      generateLocalMatrix();
+      setErrorMessage('生成对比失败，请稍后重试');
     } finally {
       setIsGenerating(false);
-    }
-  };
-
-  const generateLocalMatrix = () => {
-    const mockMatrix: MatrixRow[] = dimensions.map(dim => ({
-      dimension: dim,
-      values: papers.map(paper => ({
-        paper_id: paper.id,
-        paper_title: paper.title,
-        value: `${paper.title.slice(0, 20)}的${dim}...`,
-      }))
-    }));
-    
-    const mockConflicts = dimensions.filter(() => Math.random() > 0.5);
-    
-    setMatrix(mockMatrix);
-    setConflicts(mockConflicts);
-    setSummary(`比较了 ${papers.length} 篇论文。`);
-  };
-
-  const handleSaveSet = async () => {
-    if (papers.length < 2) return;
-    
-    setIsSaving(true);
-    try {
-      const result = await compareApi.createSet(
-        `对比: ${papers.map(p => p.title.slice(0, 20)).join(' vs ')}`,
-        papers.map(p => p.id)
-      );
-      setCompareSetId(result.id);
-      alert('对比集合已保存！');
-    } catch (error) {
-      console.error('保存失败:', error);
-    } finally {
-      setIsSaving(false);
     }
   };
 
@@ -293,18 +243,6 @@ export default function ComparePage() {
               </Button>
               <Button 
                 variant="secondary" 
-                onClick={handleSaveSet}
-                disabled={papers.length < 2 || isSaving}
-              >
-                {isSaving ? (
-                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                ) : (
-                  <Save className="w-4 h-4 mr-1" />
-                )}
-                保存
-              </Button>
-              <Button 
-                variant="secondary" 
                 onClick={handleExport}
                 disabled={matrix.length === 0}
               >
@@ -317,6 +255,11 @@ export default function ComparePage() {
       </div>
 
       <div className="max-w-7xl mx-auto px-6 py-8">
+        {errorMessage && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-6 text-sm text-red-700">
+            {errorMessage}
+          </div>
+        )}
         {/* Papers List */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
           <h2 className="text-lg font-medium text-gray-900 mb-4">对比论文</h2>

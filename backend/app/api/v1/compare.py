@@ -39,6 +39,12 @@ class CompareMatrixResponse(BaseModel):
     summary: str
 
 
+class QuickCompareMatrixRequest(BaseModel):
+    """快速对比矩阵请求（不创建集合、不落库）"""
+    paper_ids: List[str]
+    dimensions: Optional[List[str]] = None
+
+
 DEFAULT_DIMENSIONS = [
     "研究问题",
     "方法",
@@ -47,6 +53,74 @@ DEFAULT_DIMENSIONS = [
     "主要结果",
     "局限性"
 ]
+
+
+def _get_cached_packs(paper) -> dict:
+    extra = getattr(paper, "extra_data", None) or {}
+    if not isinstance(extra, dict):
+        return {}
+    skim_pack = (extra.get("skim_pack_cache") or {}).get("data")
+    deep_pack = (extra.get("deep_pack_cache") or {}).get("data")
+    return {
+        "skim_pack": skim_pack if isinstance(skim_pack, dict) else None,
+        "deep_pack": deep_pack if isinstance(deep_pack, dict) else None,
+    }
+
+
+def _build_papers_info(db: Session, paper_ids: List[str]) -> List[dict]:
+    papers_info: List[dict] = []
+    for paper_id in paper_ids:
+        paper = paper_crud.get(db, paper_id)
+        if not paper:
+            raise HTTPException(status_code=404, detail=f"论文不存在: {paper_id}")
+
+        skim = skim_crud.get(db, paper_id)
+        cached = _get_cached_packs(paper)
+
+        papers_info.append({
+            "id": paper.id,
+            "title": paper.title,
+            "authors": paper.authors,
+            "year": paper.year,
+            "venue": paper.venue,
+            "abstract": paper.abstract or "",
+            "skim": {
+                "research_question": skim.research_question if skim else "",
+                "contributions": skim.contributions if skim else [],
+                "evidence_strength": skim.evidence_strength if skim else "",
+            } if skim else None,
+            "skim_pack": cached.get("skim_pack"),
+            "deep_pack": cached.get("deep_pack"),
+        })
+    return papers_info
+
+
+def _build_matrix(papers_info: List[dict], compare_dimensions: List[str]) -> tuple[list, list]:
+    matrix: List[dict] = []
+    conflicts: List[dict] = []
+
+    for dim in compare_dimensions:
+        row = {"dimension": dim, "values": []}
+
+        for paper in papers_info:
+            value = _extract_dimension_value(paper, dim)
+            row["values"].append({
+                "paper_id": paper["id"],
+                "paper_title": paper["title"],
+                "value": value
+            })
+
+        matrix.append(row)
+
+        values = [v["value"] for v in row["values"] if v["value"]]
+        if len(set(values)) > 1:
+            conflicts.append({
+                "dimension": dim,
+                "papers": [v["paper_title"] for v in row["values"]],
+                "values": values
+            })
+
+    return matrix, conflicts
 
 
 @router.post("/sets", response_model=dict)
@@ -255,58 +329,8 @@ async def generate_compare_matrix(
     # 使用指定维度或默认维度
     compare_dimensions = dimensions or compare_set.dimensions or DEFAULT_DIMENSIONS
     
-    # 收集论文信息
-    papers_info = []
-    for paper_id in paper_ids:
-        paper = paper_crud.get(db, paper_id)
-        if not paper:
-            continue
-        
-        skim = skim_crud.get(db, paper_id)
-        
-        papers_info.append({
-            "id": paper.id,
-            "title": paper.title,
-            "authors": paper.authors,
-            "year": paper.year,
-            "venue": paper.venue,
-            "abstract": paper.abstract or "",
-            "skim": {
-                "research_question": skim.research_question if skim else "",
-                "contributions": skim.contributions if skim else [],
-                "evidence_strength": skim.evidence_strength if skim else "",
-            } if skim else None
-        })
-    
-    # 构建比较矩阵
-    matrix = []
-    conflicts = []
-    
-    for dim in compare_dimensions:
-        row = {
-            "dimension": dim,
-            "values": []
-        }
-        
-        for paper in papers_info:
-            # 根据维度提取相关信息
-            value = _extract_dimension_value(paper, dim)
-            row["values"].append({
-                "paper_id": paper["id"],
-                "paper_title": paper["title"],
-                "value": value
-            })
-        
-        matrix.append(row)
-        
-        # 检测冲突
-        values = [v["value"] for v in row["values"] if v["value"]]
-        if len(set(values)) > 1:
-            conflicts.append({
-                "dimension": dim,
-                "papers": [v["paper_title"] for v in row["values"]],
-                "values": values
-            })
+    papers_info = _build_papers_info(db, paper_ids)
+    matrix, conflicts = _build_matrix(papers_info, compare_dimensions)
     
     # 生成摘要
     summary = _generate_comparison_summary(papers_info, matrix, conflicts)
@@ -324,6 +348,34 @@ async def generate_compare_matrix(
         "matrix": matrix,
         "conflicts": conflicts,
         "summary": summary
+    }
+
+
+@router.post("/quick-matrix", response_model=dict)
+async def quick_compare_matrix(
+    request: QuickCompareMatrixRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    快速对比矩阵（不创建集合、不落库）
+    """
+    paper_ids = request.paper_ids or []
+    if len(paper_ids) < 2:
+        raise HTTPException(status_code=400, detail="至少需要2篇论文进行比较")
+    if len(paper_ids) > 8:
+        raise HTTPException(status_code=400, detail="最多支持8篇论文同时比较")
+
+    compare_dimensions = request.dimensions or DEFAULT_DIMENSIONS
+    papers_info = _build_papers_info(db, paper_ids)
+    matrix, conflicts = _build_matrix(papers_info, compare_dimensions)
+    summary = _generate_comparison_summary(papers_info, matrix, conflicts)
+
+    return {
+        "dimensions": compare_dimensions,
+        "papers": papers_info,
+        "matrix": matrix,
+        "conflicts": conflicts,
+        "summary": summary,
     }
 
 
@@ -380,28 +432,59 @@ def _extract_dimension_value(paper: dict, dimension: str) -> str:
     if "问题" in dim_lower or "question" in dim_lower:
         if paper.get("skim") and paper["skim"].get("research_question"):
             return paper["skim"]["research_question"]
+        deep = paper.get("deep_pack") or {}
+        pc = deep.get("paper_card") or {}
+        if pc.get("one_line_summary"):
+            return pc.get("one_line_summary", "")
         return ""
     
     if "方法" in dim_lower or "method" in dim_lower:
-        # 从摘要中提取方法相关信息
+        deep = paper.get("deep_pack") or {}
+        mf = deep.get("method_flow") or {}
+        if mf.get("overview"):
+            return mf.get("overview", "")
+        if mf.get("method_name"):
+            return mf.get("method_name", "")
         abstract = paper.get("abstract", "")
         if "propose" in abstract.lower() or "method" in abstract.lower():
             return abstract[:200]
         return ""
     
     if "数据" in dim_lower or "dataset" in dim_lower:
-        return ""  # 需要更深度的解析
+        deep = paper.get("deep_pack") or {}
+        ex = deep.get("experiment_setup") or {}
+        datasets = ex.get("datasets") or []
+        if isinstance(datasets, list) and len(datasets) > 0:
+            names = [d.get("name") for d in datasets if isinstance(d, dict) and d.get("name")]
+            return "、".join(names)
+        return ""
     
     if "指标" in dim_lower or "metric" in dim_lower:
-        return ""  # 需要更深度的解析
+        deep = paper.get("deep_pack") or {}
+        ex = deep.get("experiment_setup") or {}
+        metrics = ex.get("metrics") or []
+        if isinstance(metrics, list) and len(metrics) > 0:
+            names = [m.get("name") for m in metrics if isinstance(m, dict) and m.get("name")]
+            return "、".join(names)
+        return ""
     
     if "结果" in dim_lower or "result" in dim_lower:
+        deep = paper.get("deep_pack") or {}
+        pc = deep.get("paper_card") or {}
+        kt = pc.get("key_takeaways") or []
+        if isinstance(kt, list) and len(kt) > 0:
+            return "；".join([str(x) for x in kt[:2] if x])
         if paper.get("skim") and paper["skim"].get("contributions"):
             return "; ".join(paper["skim"]["contributions"][:2])
         return ""
     
     if "局限" in dim_lower or "limitation" in dim_lower:
-        return ""  # 需要更深度的解析
+        deep = paper.get("deep_pack") or {}
+        pc = deep.get("paper_card") or {}
+        lim = pc.get("limitations") or []
+        if isinstance(lim, list) and len(lim) > 0:
+            return "；".join([str(x) for x in lim[:3] if x])
+        return ""
     
     return ""
 

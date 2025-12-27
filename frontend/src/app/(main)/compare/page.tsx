@@ -1,356 +1,244 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { MainLayout } from '@/components/layout';
 import { Button, Badge, EmptyState, Input, Modal } from '@/components/common';
-import { cn } from '@/lib/utils';
-import { compareApi, paperApi } from '@/lib/api';
+import { paperApi, compareApi } from '@/lib/api';
 import type { Paper } from '@/types';
-import {
-  GitCompare,
-  Plus,
-  Trash2,
-  Search,
-  Loader2,
-  ChevronRight,
-  Calendar,
-  FileText,
-  RefreshCw,
-} from 'lucide-react';
+import { GitCompare, Plus, Search, Loader2, AlertTriangle, Download } from 'lucide-react';
 
-interface CompareSet {
-  id: string;
-  name: string;
-  paper_ids: string[];
-  paper_count: number;
-  created_at?: string;
-  updated_at?: string;
-}
+type MatrixRow = {
+  dimension: string;
+  values: Array<{
+    paper_id: string;
+    paper_title: string;
+    value: string;
+  }>;
+};
 
-export default function CompareListPage() {
-  const router = useRouter();
-  const [sets, setSets] = useState<CompareSet[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [showCreateModal, setShowCreateModal] = useState(false);
+const DEFAULT_DIMENSIONS = ['研究问题', '方法', '数据集', '评估指标', '主要结果', '局限性'];
+
+export default function ComparePage() {
+  const [showModal, setShowModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Paper[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [selectedPapers, setSelectedPapers] = useState<Paper[]>([]);
-  const [setName, setSetName] = useState('');
-  const [isCreating, setIsCreating] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const [isComparing, setIsComparing] = useState(false);
+  const [matrix, setMatrix] = useState<MatrixRow[]>([]);
+  const [conflicts, setConflicts] = useState<string[]>([]);
+  const [summary, setSummary] = useState<string>('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    loadSets();
-  }, []);
-
-  // 搜索论文
-  useEffect(() => {
-    const searchPapers = async () => {
+    const run = async () => {
       if (!searchQuery.trim()) {
         setSearchResults([]);
         return;
       }
-      
+
       setIsSearching(true);
       try {
         const result = await paperApi.list({ search: searchQuery, limit: 10 });
-        const resultItems = result.items || [];
-        // 过滤掉已选择的论文
-        const filtered = resultItems.filter(
-          (p: Paper) => !selectedPapers.find(existing => existing.id === p.id)
-        );
+        const items = result.items || [];
+        const filtered = items.filter((p: Paper) => !selectedPapers.some(sp => sp.id === p.id));
         setSearchResults(filtered);
-      } catch (error) {
-        console.error('搜索论文失败:', error);
+      } catch (e) {
+        console.error('搜索论文失败:', e);
       } finally {
         setIsSearching(false);
       }
     };
 
-    const timer = setTimeout(searchPapers, 300);
-    return () => clearTimeout(timer);
+    const t = setTimeout(run, 300);
+    return () => clearTimeout(t);
   }, [searchQuery, selectedPapers]);
 
-  const loadSets = async () => {
-    setIsLoading(true);
-    try {
-      const result = await compareApi.listSets?.() || { items: [] };
-      setSets(result.items || []);
-    } catch (error) {
-      console.error('加载对比集合失败:', error);
-      setSets([]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleCreateSet = async () => {
+  const startCompare = async () => {
     if (selectedPapers.length < 2) return;
-    
-    setIsCreating(true);
+    setIsComparing(true);
+    setErrorMessage(null);
     try {
-      const name = setName.trim() || `对比: ${selectedPapers.map(p => p.title.slice(0, 15)).join(' vs ')}`;
-      const result = await compareApi.createSet(name, selectedPapers.map(p => p.id));
-      
-      // 跳转到新创建的对比页面
-      if (result.id && selectedPapers[0]) {
-        router.push(`/paper/${selectedPapers[0].id}/compare?setId=${result.id}`);
-      } else {
-        // 刷新列表
-        loadSets();
-        setShowCreateModal(false);
-        setSelectedPapers([]);
-        setSetName('');
-        setSearchQuery('');
-      }
-    } catch (error) {
-      console.error('创建对比集合失败:', error);
+      const res = await compareApi.quickMatrix(selectedPapers.map(p => p.id), DEFAULT_DIMENSIONS);
+      setMatrix(res.matrix || []);
+      setConflicts((res.conflicts || []).map((c: { dimension: string }) => c.dimension));
+      setSummary(res.summary || '');
+      setShowModal(false);
+    } catch (e) {
+      console.error('对比失败:', e);
+      setErrorMessage('对比失败，请稍后重试');
     } finally {
-      setIsCreating(false);
+      setIsComparing(false);
     }
   };
 
-  const handleDeleteSet = async (setId: string) => {
-    setDeletingId(setId);
-    try {
-      await compareApi.deleteSet?.(setId);
-      setSets(sets.filter(s => s.id !== setId));
-    } catch (error) {
-      console.error('删除对比集合失败:', error);
-    } finally {
-      setDeletingId(null);
+  const exportMarkdown = () => {
+    if (matrix.length === 0) return;
+    let md = `# 论文对比\n\n`;
+    md += `## 对比论文\n`;
+    selectedPapers.forEach((p, i) => {
+      md += `${i + 1}. ${p.title} (${p.year || 'N/A'})\n`;
+    });
+    md += `\n## 对比矩阵\n\n`;
+    md += `| 维度 | ${selectedPapers.map(p => p.title.slice(0, 20)).join(' | ')} |\n`;
+    md += `| --- | ${selectedPapers.map(() => '---').join(' | ')} |\n`;
+    matrix.forEach(row => {
+      md += `| ${row.dimension} | ${row.values.map(v => v.value || '-').join(' | ')} |\n`;
+    });
+    if (conflicts.length > 0) {
+      md += `\n## 差异维度\n`;
+      conflicts.forEach(c => {
+        md += `- ${c}\n`;
+      });
     }
-  };
-
-  const handleAddPaper = (paper: Paper) => {
-    if (!selectedPapers.find(p => p.id === paper.id)) {
-      setSelectedPapers([...selectedPapers, paper]);
+    if (summary) {
+      md += `\n## 总结\n${summary}\n`;
     }
-    setSearchQuery('');
-  };
 
-  const handleRemovePaper = (paperId: string) => {
-    setSelectedPapers(selectedPapers.filter(p => p.id !== paperId));
-  };
-
-  const handleOpenSet = (set: CompareSet) => {
-    if (set.paper_ids && set.paper_ids.length > 0) {
-      router.push(`/paper/${set.paper_ids[0]}/compare?setId=${set.id}`);
-    }
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `compare_${new Date().toISOString().slice(0, 10)}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const headerActions = (
-    <div className="flex items-center gap-3">
-      <Button variant="secondary" onClick={loadSets}>
-        <RefreshCw className="w-4 h-4 mr-1" />
-        刷新
-      </Button>
-      <Button onClick={() => setShowCreateModal(true)}>
+    <div className="flex items-center gap-2">
+      <Button variant="secondary" onClick={() => setShowModal(true)}>
         <Plus className="w-4 h-4 mr-1" />
-        新建对比
+        选择论文
+      </Button>
+      <Button variant="secondary" onClick={exportMarkdown} disabled={matrix.length === 0}>
+        <Download className="w-4 h-4 mr-1" />
+        导出
       </Button>
     </div>
   );
 
-  if (isLoading) {
-    return (
-      <MainLayout title="论文对比" showSearch={false} headerActions={headerActions}>
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
-        </div>
-      </MainLayout>
-    );
-  }
-
   return (
     <MainLayout title="论文对比" showSearch={false} headerActions={headerActions}>
-      <div className="p-6 max-w-5xl mx-auto">
-        {sets.length === 0 ? (
-          <EmptyState
-            icon={<GitCompare className="w-8 h-8 text-gray-400" />}
-            title="暂无对比集合"
-            description="创建一个新的对比集合，选择多篇论文进行对比分析"
-            action={
-              <Button onClick={() => setShowCreateModal(true)}>
-                <Plus className="w-4 h-4 mr-1" />
-                新建对比
-              </Button>
-            }
-          />
-        ) : (
-          <div className="space-y-4">
-            {sets.map((set) => (
-              <div
-                key={set.id}
-                className="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-shadow"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <h3 
-                      className="font-medium text-gray-900 hover:text-indigo-600 cursor-pointer line-clamp-1"
-                      onClick={() => handleOpenSet(set)}
-                    >
-                      {set.name}
-                    </h3>
-                    <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
-                      <div className="flex items-center gap-1">
-                        <FileText className="w-4 h-4" />
-                        <span>{set.paper_count} 篇论文</span>
-                      </div>
-                      {set.created_at && (
-                        <div className="flex items-center gap-1">
-                          <Calendar className="w-4 h-4" />
-                          <span>{new Date(set.created_at).toLocaleDateString()}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+      <div className="p-6 max-w-6xl mx-auto space-y-4">
+        <EmptyState
+          icon={<GitCompare className="w-8 h-8 text-gray-400" />}
+          title="快速对比"
+          description="直接选择多篇论文生成对比矩阵（当前不使用集合）"
+          action={
+            <Button onClick={() => setShowModal(true)}>
+              <Plus className="w-4 h-4 mr-1" />
+              开始
+            </Button>
+          }
+        />
 
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Button 
-                      variant="secondary" 
-                      size="sm"
-                      onClick={() => handleOpenSet(set)}
-                    >
-                      <ChevronRight className="w-4 h-4 mr-1" />
-                      查看
-                    </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      onClick={() => handleDeleteSet(set.id)}
-                      disabled={deletingId === set.id}
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                    >
-                      {deletingId === set.id ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="w-4 h-4" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ))}
+        {errorMessage && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">{errorMessage}</div>
+        )}
+        {summary && (
+          <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 text-sm text-indigo-800">{summary}</div>
+        )}
+        {matrix.length > 0 && (
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <th className="text-left px-6 py-4 font-medium text-gray-900 w-40">维度</th>
+                    {selectedPapers.map(p => (
+                      <th key={p.id} className="text-left px-6 py-4 font-medium text-gray-900">
+                        <div className="max-w-xs truncate">{p.title}</div>
+                        <div className="text-xs font-normal text-gray-500">{p.year}</div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {matrix.map(row => (
+                    <tr key={row.dimension} className="border-b border-gray-100 last:border-0">
+                      <td className="px-6 py-4 font-medium text-gray-900 bg-gray-50">
+                        <div className="flex items-center gap-2">
+                          {row.dimension}
+                          {conflicts.includes(row.dimension) && <AlertTriangle className="w-4 h-4 text-amber-500" />}
+                        </div>
+                      </td>
+                      {row.values.map(val => (
+                        <td key={val.paper_id} className="px-6 py-4 text-gray-700">
+                          {val.value || '-'}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>
 
-      {/* Create Modal */}
-      <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)}>
+      <Modal isOpen={showModal} onClose={() => setShowModal(false)}>
         <div className="p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">新建对比集合</h2>
-          
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                集合名称（可选）
-              </label>
-              <Input
-                value={setName}
-                onChange={(e) => setSetName(e.target.value)}
-                placeholder="例如：Transformer变体对比"
-              />
-            </div>
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">选择论文并对比</h2>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                添加论文（至少2篇）
-              </label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <Input
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="搜索论文标题..."
-                  className="pl-10"
-                />
-              </div>
-            </div>
+          <div className="relative mb-4">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <Input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="搜索论文标题..." className="pl-10" />
+          </div>
 
-            {/* Search Results */}
-            {searchQuery && (
-              <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-lg">
-                {isSearching ? (
-                  <div className="flex items-center justify-center py-4">
-                    <Loader2 className="w-5 h-5 text-gray-400 animate-spin" />
-                  </div>
-                ) : searchResults.length > 0 ? (
-                  <div className="p-2 space-y-1">
-                    {searchResults.map((paper) => (
-                      <button
-                        key={paper.id}
-                        onClick={() => handleAddPaper(paper)}
-                        className="w-full flex items-center justify-between p-2 hover:bg-gray-50 rounded-lg text-left"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium text-gray-900 line-clamp-1">{paper.title}</div>
-                          <div className="text-xs text-gray-500">
-                            {paper.authors?.slice(0, 2).join(', ')} • {paper.year || 'N/A'}
-                          </div>
-                        </div>
-                        <Plus className="w-4 h-4 text-gray-400 shrink-0" />
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-4 text-sm text-gray-500">
-                    没有找到匹配的论文
-                  </div>
-                )}
+          <div className="space-y-2 max-h-60 overflow-y-auto">
+            {isSearching ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="w-5 h-5 text-gray-400 animate-spin" />
               </div>
+            ) : searchResults.length > 0 ? (
+              searchResults.map((paper) => (
+                <button
+                  key={paper.id}
+                  onClick={() => {
+                    setSelectedPapers(prev => [...prev, paper]);
+                    setSearchQuery('');
+                  }}
+                  className="w-full flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg text-left"
+                >
+                  <div>
+                    <div className="font-medium text-gray-900 line-clamp-1">{paper.title}</div>
+                    <div className="text-sm text-gray-500">{paper.authors?.slice(0, 2).join(', ')} • {paper.year || 'N/A'}</div>
+                  </div>
+                  <Plus className="w-4 h-4 text-gray-400" />
+                </button>
+              ))
+            ) : searchQuery ? (
+              <div className="text-center py-4 text-gray-500">没有找到匹配的论文</div>
+            ) : (
+              <div className="text-center py-4 text-gray-500">输入关键词搜索论文</div>
             )}
+          </div>
 
-            {/* Selected Papers */}
-            {selectedPapers.length > 0 && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  已选择 ({selectedPapers.length})
-                </label>
-                <div className="space-y-2">
-                  {selectedPapers.map((paper, index) => (
-                    <div
-                      key={paper.id}
-                      className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg"
-                    >
-                      <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 text-sm font-medium">
-                        {index + 1}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-gray-900 line-clamp-1">{paper.title}</div>
-                      </div>
-                      <button
-                        onClick={() => handleRemovePaper(paper.id)}
-                        className="p-1 text-gray-400 hover:text-red-500"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
-              <Button variant="secondary" onClick={() => setShowCreateModal(false)}>
-                取消
-              </Button>
-              <Button 
-                onClick={handleCreateSet}
-                disabled={selectedPapers.length < 2 || isCreating}
-              >
-                {isCreating ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                    创建中...
-                  </>
-                ) : (
-                  '创建并开始对比'
-                )}
-              </Button>
+          {selectedPapers.length > 0 && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {selectedPapers.map(p => (
+                <Badge key={p.id} variant="default" className="flex items-center gap-1">
+                  {p.title.slice(0, 20)}
+                  <button
+                    onClick={() => setSelectedPapers(prev => prev.filter(x => x.id !== p.id))}
+                    className="ml-1 hover:text-red-500"
+                  >
+                    ×
+                  </button>
+                </Badge>
+              ))}
             </div>
+          )}
+
+          <div className="pt-4 mt-4 border-t border-gray-200 flex justify-end gap-3">
+            <Button variant="secondary" onClick={() => setShowModal(false)}>取消</Button>
+            <Button onClick={startCompare} disabled={selectedPapers.length < 2 || isComparing}>
+              {isComparing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <GitCompare className="w-4 h-4 mr-2" />}
+              开始对比
+            </Button>
           </div>
         </div>
       </Modal>
