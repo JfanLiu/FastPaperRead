@@ -73,6 +73,10 @@ class Settings(BaseSettings):
     MINERU_USE_GPU: bool = True
     MINERU_FAST_MODE: bool = False  # 快速模式：关闭公式/表格识别，速度提升2倍
     MINERU_GPU_ID: str = "0"  # 使用的GPU编号
+    # MinerU 云端解析
+    MINERU_USE_API: bool = False  # 启用则优先走 MinerU 提供的 API 解析
+    MINERU_API_TOKEN: Optional[str] = None
+    MINERU_API_BASE: str = "https://mineru.net/api/v4"
     
     class Config:
         env_file = find_env_file()

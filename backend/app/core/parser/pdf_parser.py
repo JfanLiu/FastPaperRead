@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 import logging
+import zipfile
+import httpx
 
 from app.config import settings
 
@@ -95,7 +97,18 @@ class PDFParser:
         output_name = pdf_path.stem
         output_path = self.output_dir / output_name
         output_path.mkdir(parents=True, exist_ok=True)
-        
+
+        # 优先使用 MinerU 官方 API（若配置了 token 且开启开关）
+        api_token = settings.MINERU_API_TOKEN
+        if settings.MINERU_USE_API and api_token:
+            try:
+                api_result = await self._run_mineru_api(pdf_path, output_path, api_token)
+                if api_result and api_result.success:
+                    return api_result
+                logger.warning("MinerU API 解析失败，尝试本地 mineru")
+            except Exception as api_err:
+                logger.warning(f"MinerU API 异常: {api_err}, 将尝试本地 mineru")
+
         try:
             # 根据MinerU安装状态选择解析器
             if check_mineru_installed():
@@ -130,11 +143,12 @@ class PDFParser:
         """
         try:
             # 使用 mineru 命令行工具（新版本）
+            device = "cuda" if settings.MINERU_USE_GPU else "cpu"
             cmd = [
                 "mineru",
                 "-p", str(pdf_path),
                 "-o", str(output_path),
-                "--device", "cuda",  # 强制使用 GPU 加速
+                "--device", device,
             ]
             
             # 快速模式：关闭公式/表格识别
@@ -162,9 +176,13 @@ class PDFParser:
             stdout, stderr = await process.communicate()
             
             if process.returncode != 0:
-                # MinerU执行失败，使用备用方案
                 error_msg = stderr.decode() if stderr else "未知错误"
-                logger.warning(f"MinerU执行失败 (code={process.returncode}): {error_msg[:200]}")
+                logger.warning(f"MinerU执行失败 (code={process.returncode}, device={device}): {error_msg[:200]}")
+                # 如果GPU不可用，自动退回CPU再试一次
+                if device == "cuda":
+                    logger.info("尝试使用CPU重新运行 MinerU")
+                    settings.MINERU_USE_GPU = False  # 避免递归时继续用GPU
+                    return await self._run_mineru(pdf_path, output_path)
                 logger.warning("使用备用解析器")
                 return await self._fallback_parse(pdf_path, output_path)
             
@@ -174,6 +192,79 @@ class PDFParser:
         except Exception as e:
             logger.warning(f"MinerU异常: {e}, 使用备用解析器")
             return await self._fallback_parse(pdf_path, output_path)
+
+    async def _run_mineru_api(self, pdf_path: Path, output_path: Path, token: str) -> ParseResult:
+        """
+        使用 MinerU 官方 API 解析（上传 -> 轮询 -> 下载结果 zip）
+        """
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}"
+        }
+        base = settings.MINERU_API_BASE.rstrip("/")
+        upload_url = f"{base}/file-urls/batch"
+        payload = {
+            "files": [{"name": pdf_path.name}],
+            "model_version": "vlm",
+        }
+        # 快速模式关闭公式/表格
+        if settings.MINERU_FAST_MODE or os.environ.get("MINERU_FAST_MODE", "").lower() == "true":
+            payload["enable_formula"] = False
+            payload["enable_table"] = False
+
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(upload_url, headers=headers, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get("code") != 0:
+                raise RuntimeError(f"申请上传链接失败: {data}")
+            batch_id = data["data"]["batch_id"]
+            file_urls = data["data"]["file_urls"]
+            if not file_urls:
+                raise RuntimeError("未返回上传URL")
+
+            # 上传文件（PUT 预签名地址）
+            upload_resp = await client.put(file_urls[0], content=pdf_path.read_bytes())
+            upload_resp.raise_for_status()
+            logger.info(f"MinerU API 上传成功: {pdf_path.name}")
+
+            # 轮询解析结果
+            result_url = f"{base}/extract-results/batch/{batch_id}"
+            full_zip_url = None
+            for _ in range(30):  # 最多约 5 分钟（30*10s）
+                res = await client.get(result_url, headers=headers)
+                res.raise_for_status()
+                res_json = res.json()
+                if res_json.get("code") != 0:
+                    raise RuntimeError(f"查询结果失败: {res_json}")
+                extract_list = res_json.get("data", {}).get("extract_result", [])
+                if not extract_list:
+                    await asyncio.sleep(10)
+                    continue
+                state = extract_list[0].get("state")
+                if state == "done":
+                    full_zip_url = extract_list[0].get("full_zip_url")
+                    break
+                if state == "failed":
+                    raise RuntimeError(f"MinerU API 解析失败: {extract_list[0].get('err_msg')}")
+                await asyncio.sleep(10)
+
+            if not full_zip_url:
+                raise RuntimeError("MinerU API 结果超时")
+
+            # 下载并解压结果
+            zip_bytes = await client.get(full_zip_url)
+            zip_bytes.raise_for_status()
+
+        api_output_dir = output_path / "api"
+        api_output_dir.mkdir(parents=True, exist_ok=True)
+        zip_path = api_output_dir / "mineru_result.zip"
+        zip_path.write_bytes(zip_bytes.content)
+
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(api_output_dir)
+
+        return self._read_extracted_output(api_output_dir, pdf_path.stem)
     
     async def _fallback_parse(self, pdf_path: Path, output_path: Path) -> ParseResult:
         """
@@ -296,6 +387,54 @@ class PDFParser:
                 error=f"文本提取失败: {e}"
             )
     
+    def _read_extracted_output(self, base_dir: Path, pdf_name: str) -> ParseResult:
+        """
+        从 MinerU API 解压结果中读取 markdown / content_list
+        """
+        md_path = ""
+        for p in base_dir.rglob("*.md"):
+            md_path = str(p)
+            break
+
+        content_list = []
+        cl_path = None
+        for p in base_dir.rglob("*content_list*.json"):
+            cl_path = p
+            break
+        if cl_path:
+            try:
+                content_list = json.loads(cl_path.read_text(encoding="utf-8"))
+            except Exception as e:
+                logger.warning(f"读取 content_list 失败: {e}")
+
+        figures, tables, equations = [], [], []
+        image_url_prefix = f"/output/{pdf_name}/api/"
+        for idx, item in enumerate(content_list):
+            item_type = item.get("type", "")
+            if item_type in ("image", "figure"):
+                img_path = item.get("img_path") or item.get("path")
+                if img_path:
+                    item["path"] = image_url_prefix + str(Path(img_path)).replace("\\", "/")
+                item["id"] = item.get("id") or f"fig_{idx}"
+                figures.append(item)
+            elif item_type == "table":
+                tables.append(item)
+            elif item_type in ("equation", "interline_equation"):
+                equations.append(item)
+
+        md_content = Path(md_path).read_text(encoding="utf-8") if md_path and Path(md_path).exists() else ""
+        metadata = self._extract_metadata_from_text(md_content)
+
+        return ParseResult(
+            markdown_path=md_path,
+            content_list=content_list,
+            figures=figures,
+            tables=tables,
+            equations=equations,
+            metadata=metadata,
+            success=bool(md_path)
+        )
+
     def _read_mineru_output(self, output_path: Path, pdf_name: str) -> ParseResult:
         """
         读取MinerU输出结果
