@@ -60,7 +60,7 @@ export default function ComparePage() {
     setIsComparing(true);
     setErrorMessage(null);
     try {
-      const res = await compareApi.quickMatrix(selectedPapers.map(p => p.id), DEFAULT_DIMENSIONS, { use_llm: true });
+      const res = await compareApi.quickMatrix(selectedPapers.map(p => p.id), DEFAULT_DIMENSIONS, { use_llm: true, persist: true });
       setMatrix(res.matrix || []);
       setConflicts((res.conflicts || []).map((c: { dimension: string }) => c.dimension));
       setSummary(res.summary || '');

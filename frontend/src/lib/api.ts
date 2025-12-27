@@ -445,8 +445,8 @@ export const compareApi = {
   },
 
   // 快速对比矩阵（不创建集合）
-  quickMatrix: async (paperIds: string[], dimensions?: string[], options?: { use_llm?: boolean }) => {
-    const res = await api.post('/compare/quick-matrix', { paper_ids: paperIds, dimensions, use_llm: options?.use_llm ?? true });
+  quickMatrix: async (paperIds: string[], dimensions?: string[], options?: { use_llm?: boolean; persist?: boolean }) => {
+    const res = await api.post('/compare/quick-matrix', { paper_ids: paperIds, dimensions, use_llm: options?.use_llm ?? true, persist: options?.persist ?? true });
     return res.data;
   },
 

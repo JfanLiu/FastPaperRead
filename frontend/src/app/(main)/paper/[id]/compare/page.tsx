@@ -132,7 +132,7 @@ export default function ComparePage() {
     setErrorMessage(null);
     
     try {
-      const result = await compareApi.quickMatrix(papers.map(p => p.id), dimensions, { use_llm: true });
+      const result = await compareApi.quickMatrix(papers.map(p => p.id), dimensions, { use_llm: true, persist: true });
       
       setMatrix(result.matrix || []);
       setConflicts((result.conflicts || []).map((c: { dimension: string }) => c.dimension));

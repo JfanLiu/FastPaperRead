@@ -70,6 +70,23 @@ def _get_cached_packs(paper) -> dict:
     }
 
 
+def _persist_compare_cache(db: Session, paper_ids: List[str], cache_key: str, payload: Dict[str, Any]):
+    """将对比结果持久化到各论文的 extra_data.compare_cache 中"""
+    for pid in paper_ids:
+        paper = paper_crud.get(db, pid)
+        if not paper:
+            continue
+        extra = paper.extra_data or {}
+        if not isinstance(extra, dict):
+            extra = {}
+        cache = extra.get("compare_cache") or {}
+        if not isinstance(cache, dict):
+            cache = {}
+        cache[cache_key] = payload
+        extra["compare_cache"] = cache
+        paper_crud.update(db, pid, extra_data=extra)
+
+
 def _build_papers_info(db: Session, paper_ids: List[str]) -> List[dict]:
     papers_info: List[dict] = []
     for paper_id in paper_ids:
@@ -447,6 +464,17 @@ async def quick_compare_matrix(
                         "values": values,
                     })
     summary = _generate_comparison_summary(papers_info, matrix, conflicts)
+
+    if request.persist:
+        cache_key = f"{'|'.join(sorted(paper_ids))}|{'|'.join(compare_dimensions)}"
+        payload = {
+            "dimensions": compare_dimensions,
+            "papers": papers_info,
+            "matrix": matrix,
+            "conflicts": conflicts,
+            "summary": summary,
+        }
+        _persist_compare_cache(db, paper_ids, cache_key, payload)
 
     return {
         "dimensions": compare_dimensions,
