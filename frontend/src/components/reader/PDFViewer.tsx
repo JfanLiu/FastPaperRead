@@ -205,6 +205,20 @@ export function PDFViewer({
     setError(`PDF加载失败: ${error.message || '请检查文件是否存在'}`);
     setIsLoading(false);
   }, []);
+  const onPageRenderError = useCallback((error: Error) => {
+    // 切页/卸载时 TextLayer 任务被取消会抛 AbortException，属正常情况，忽略之
+    if (error?.name === 'AbortException' || /AbortException/i.test(error?.message || '')) {
+      return;
+    }
+    console.error('PDF渲染异常:', error);
+  }, []);
+  const onTextLayerError = useCallback((error: Error) => {
+    // 同样忽略正常的取消异常
+    if (error?.name === 'AbortException' || /AbortException/i.test(error?.message || '')) {
+      return;
+    }
+    console.error('TextLayer 渲染异常:', error);
+  }, []);
 
   const handleZoomIn = () => setScale(Math.min(scale + 0.25, 3.0));
   const handleZoomOut = () => setScale(Math.max(scale - 0.25, 0.5));
@@ -889,6 +903,8 @@ export function PDFViewer({
                     className="shadow-lg"
                     renderTextLayer={true}
                     renderAnnotationLayer={true}
+                    onRenderError={onPageRenderError}
+                    onRenderTextLayerError={onTextLayerError}
                     loading={
                       <div 
                         className="flex items-center justify-center bg-white"

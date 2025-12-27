@@ -144,6 +144,7 @@ export function MaterialsWorkspace({
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryProgress, setSummaryProgress] = useState<{ done: number; total: number; current?: string }>({ done: 0, total: 0 });
   const cancelSummariesRef = useRef(false);
+  const fetchedPacksRef = useRef<string | null>(null);
 
   const loadExistingSkim = useCallback(async () => {
     try {
@@ -424,6 +425,8 @@ export function MaterialsWorkspace({
   }, [loadExistingSkim, loadKeyFigures]);
 
   const loadExistingUnifiedPacks = useCallback(async () => {
+    if (fetchedPacksRef.current === paperId) return;
+    fetchedPacksRef.current = paperId;
     try {
       const res = await enhanceApiExtended.getSkimPack(paperId);
       if (res?.skim_pack) {
@@ -467,7 +470,7 @@ export function MaterialsWorkspace({
 
   useEffect(() => {
     loadExistingUnifiedPacks();
-  }, [loadExistingUnifiedPacks]);
+  }, [paperId, loadExistingUnifiedPacks]);
 
   const groupOrder: TeachingSkimGroup[] = ['why', 'insight', 'what', 'how', 'results', 'takeaways'];
   const groupLabels: Record<TeachingSkimGroup, string> = {
