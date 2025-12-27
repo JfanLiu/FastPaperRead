@@ -3,7 +3,8 @@
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+import json
 from pydantic import BaseModel
 import uuid
 
@@ -43,6 +44,8 @@ class QuickCompareMatrixRequest(BaseModel):
     """快速对比矩阵请求（不创建集合、不落库）"""
     paper_ids: List[str]
     dimensions: Optional[List[str]] = None
+    use_llm: bool = False
+    persist: bool = False
 
 
 DEFAULT_DIMENSIONS = [
@@ -121,6 +124,56 @@ def _build_matrix(papers_info: List[dict], compare_dimensions: List[str]) -> tup
             })
 
     return matrix, conflicts
+
+
+async def _llm_fill_matrix_values(
+    enhancer: ContentEnhancer,
+    papers_info: List[dict],
+    compare_dimensions: List[str],
+) -> Dict[str, Dict[str, str]]:
+    """
+    调用 LLM 生成更丰富的维度值，返回 {dimension: {paper_id: value}}
+    """
+    # 构造输入：每篇论文一段简要上下文
+    paper_blocks = []
+    for p in papers_info:
+        deep = p.get("deep_pack") or {}
+        mf = (deep.get("method_flow") or {})
+        ex = (deep.get("experiment_setup") or {})
+        pc = (deep.get("paper_card") or {})
+        datasets = ex.get("datasets") or []
+        metrics = ex.get("metrics") or []
+        block = {
+            "id": p.get("id"),
+            "title": p.get("title"),
+            "year": p.get("year"),
+            "venue": p.get("venue"),
+            "abstract": (p.get("abstract") or "")[:1000],
+            "one_line": pc.get("one_line_summary") if isinstance(pc, dict) else "",
+            "method": mf.get("overview") or mf.get("method_name") or "",
+            "datasets": ", ".join([d.get("name") for d in datasets if isinstance(d, dict) and d.get("name")]),
+            "metrics": ", ".join([m.get("name") for m in metrics if isinstance(m, dict) and m.get("name")]),
+            "results": "; ".join(pc.get("key_takeaways", [])[:2]) if isinstance(pc, dict) else "",
+            "limitations": "; ".join(pc.get("limitations", [])[:3]) if isinstance(pc, dict) else "",
+        }
+        paper_blocks.append(block)
+
+    user_content = {
+        "papers": paper_blocks,
+        "dimensions": compare_dimensions,
+        "instruction": "为每个维度、每篇论文给出1-2句对比描述，尽量引用方法/数据/指标/结果等具体信息。输出 JSON 对象：{dimension: {paper_id: value}}。"
+    }
+    try:
+        response = await enhancer.llm.chat_completion([
+            {"role": "system", "content": "你是一个论文对比助手，请输出严格的 JSON。"},
+            {"role": "user", "content": json.dumps(user_content, ensure_ascii=False)}
+        ])
+        parsed = json.loads(response)
+        if isinstance(parsed, dict):
+            return parsed
+    except Exception as e:
+        logger.warning(f"LLM 对比填充失败: {e}")
+    return {}
 
 
 @router.post("/sets", response_model=dict)
@@ -355,6 +408,7 @@ async def generate_compare_matrix(
 async def quick_compare_matrix(
     request: QuickCompareMatrixRequest,
     db: Session = Depends(get_db),
+    enhancer: ContentEnhancer = Depends(get_enhancer),
 ):
     """
     快速对比矩阵（不创建集合、不落库）
@@ -368,6 +422,30 @@ async def quick_compare_matrix(
     compare_dimensions = request.dimensions or DEFAULT_DIMENSIONS
     papers_info = _build_papers_info(db, paper_ids)
     matrix, conflicts = _build_matrix(papers_info, compare_dimensions)
+
+    if request.use_llm:
+        llm_values = await _llm_fill_matrix_values(enhancer, papers_info, compare_dimensions)
+        if llm_values:
+            # 覆盖 matrix 中的值
+            for row in matrix:
+                dim = row.get("dimension")
+                dim_vals = llm_values.get(dim) if isinstance(llm_values, dict) else {}
+                if not isinstance(dim_vals, dict):
+                    continue
+                for v in row.get("values", []):
+                    pid = v.get("paper_id")
+                    if pid in dim_vals and dim_vals[pid]:
+                        v["value"] = dim_vals[pid]
+            # 重新计算冲突基于当前 matrix
+            conflicts = []
+            for row in matrix:
+                values = [v["value"] for v in row.get("values", []) if v.get("value")]
+                if len(set(values)) > 1:
+                    conflicts.append({
+                        "dimension": row.get("dimension"),
+                        "papers": [v.get("paper_title") for v in row.get("values", [])],
+                        "values": values,
+                    })
     summary = _generate_comparison_summary(papers_info, matrix, conflicts)
 
     return {
