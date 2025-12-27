@@ -83,7 +83,13 @@ class QualityEvaluator:
         },
         {
             "type": "no_figures",
-            "check": lambda d: d.get("figure_count", 0) == 0 and d.get("page_count", 10) > 4,
+            # 只有在明确知道页数和图表数时才触发，避免未知数据时误报
+            "check": lambda d: (
+                d.get("figure_count") is not None
+                and d.get("page_count") is not None
+                and d.get("page_count", 0) > 4
+                and d.get("figure_count", 0) == 0
+            ),
             "message": "论文没有图表",
             "severity": RedFlagSeverity.LOW,
         },

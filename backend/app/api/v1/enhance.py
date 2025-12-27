@@ -816,7 +816,7 @@ async def get_skim_pack(
 
     cached = _get_cached_pack(paper, "skim_pack_cache")
     if not cached:
-        raise HTTPException(status_code=404, detail="未找到粗读包缓存")
+        return SkimPackResponse(skim_pack=None, cached=False)
 
     skim_pack = SkimPack(**cached)
     return SkimPackResponse(skim_pack=skim_pack, cached=True)
@@ -833,7 +833,7 @@ async def get_deep_pack(
 
     cached = _get_cached_pack(paper, "deep_pack_cache")
     if not cached:
-        raise HTTPException(status_code=404, detail="未找到精读包缓存")
+        return DeepPackResponse(deep_pack=None, cached=False)
 
     deep_pack = DeepPack(**cached)
     return DeepPackResponse(deep_pack=deep_pack, cached=True)

@@ -190,7 +190,7 @@ class SkimPackRequest(BaseModel):
 
 class SkimPackResponse(BaseModel):
     """粗读包生成响应"""
-    skim_pack: SkimPack
+    skim_pack: Optional[SkimPack] = None
     cached: bool = False
 
 
@@ -319,7 +319,7 @@ class DeepPackRequest(BaseModel):
 
 class DeepPackResponse(BaseModel):
     """精读包生成响应"""
-    deep_pack: DeepPack
+    deep_pack: Optional[DeepPack] = None
     cached: bool = False
 
 
