@@ -6,7 +6,6 @@ import dynamic from 'next/dynamic';
 import { 
   EnhancePanel, 
   SelectionToolbar,
-  RoutePlanner,
   StructuredView,
   NotesPanel,
   ChecklistPanel,
@@ -64,7 +63,6 @@ interface ReadingSession {
   lastAnchor?: Anchor;
   lastTab?: RightPanelTab;
   completedSections: Set<string>;
-  route?: string[];
 }
 
 interface ChecklistItem {
@@ -96,8 +94,6 @@ export default function ReadPage() {
   const [mainViewMode, setMainViewMode] = useState<MainViewMode>('pdf');
   
   // 精读状态
-  const [showRoutePlanner, setShowRoutePlanner] = useState(false);
-  const [currentRoute, setCurrentRoute] = useState<string[]>([]);
   const [session, setSession] = useState<ReadingSession | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const [showResumeBanner, setShowResumeBanner] = useState(false);
@@ -156,8 +152,11 @@ export default function ReadPage() {
             completedSections: new Set(parsed.completedSections || []),
           });
         } else {
-          // 第一次阅读，显示路线规划
-          setShowRoutePlanner(true);
+          // 第一次阅读：直接开始（不再维护“阅读路线”）
+          setSession({
+            startTime: new Date(),
+            completedSections: new Set(),
+          });
         }
       } catch (error) {
         console.error('加载论文失败:', error);
@@ -209,18 +208,6 @@ export default function ReadPage() {
         completedSections: newCompleted,
       });
     }
-  };
-
-  // 处理路线选择
-  const handleSelectRoute = (route: { sections: string[] }, customSections?: string[]) => {
-    const sections = customSections || route.sections;
-    setCurrentRoute(sections);
-    setSession({
-      startTime: new Date(),
-      completedSections: new Set(),
-      route: sections,
-    });
-    setShowRoutePlanner(false);
   };
 
   // 处理暂停/继续
@@ -459,14 +446,7 @@ export default function ReadPage() {
         />
       )}
       
-      {/* Route Planner Modal */}
-      <RoutePlanner
-        isOpen={showRoutePlanner}
-        onClose={() => setShowRoutePlanner(false)}
-        onSelectRoute={handleSelectRoute}
-        anchors={anchors}
-        paperTitle={paper.title}
-      />
+      {/* “阅读路线”功能已移除 */}
 
       {/* Top Bar */}
       <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-gray-200 shrink-0">
@@ -553,32 +533,6 @@ export default function ReadPage() {
             {isPaused ? <Play className="w-5 h-5" /> : <Pause className="w-5 h-5" />}
           </button>
 
-          {/* Route Dropdown */}
-          <div className="relative">
-            <select
-              value={currentRoute.length > 0 ? 'custom' : ''}
-              onChange={(e) => {
-                const value = e.target.value;
-                if (value === 'quick-repro') {
-                  setCurrentRoute(['Method', 'Experiments', 'Implementation Details', 'Appendix']);
-                } else if (value === 'reviewer') {
-                  setCurrentRoute(['Abstract', 'Introduction', 'Method', 'Experiments', 'Conclusion']);
-                } else if (value === 'full-read') {
-                  setCurrentRoute(['Abstract', 'Introduction', 'Related Work', 'Method', 'Experiments', 'Discussion', 'Conclusion']);
-                } else if (value === 'custom') {
-                  setShowRoutePlanner(true);
-                }
-              }}
-              className="pl-3 pr-8 py-1.5 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="">选择路线</option>
-              <option value="quick-repro">🔧 快速复现</option>
-              <option value="reviewer">📋 审稿路线</option>
-              <option value="full-read">📖 全文精读</option>
-              <option value="custom">⚙️ 自定义...</option>
-            </select>
-          </div>
-
           {/* Sync Toggle */}
           <button
             onClick={() => setSyncEnabled(!syncEnabled)}
@@ -621,11 +575,7 @@ export default function ReadPage() {
           <div className="w-px h-5 bg-gray-200" />
 
           {/* Settings */}
-          <button 
-            onClick={() => setShowRoutePlanner(true)}
-            className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg"
-            title="更多设置"
-          >
+          <button className="p-2 text-gray-300 cursor-not-allowed" title="设置（暂不可用）" disabled>
             <Settings className="w-5 h-5" />
           </button>
         </div>
@@ -640,7 +590,6 @@ export default function ReadPage() {
                 paperId={paperId}
                 paper={paper}
                 anchors={anchors}
-                currentRoute={currentRoute}
                 onOpenPdfAtAnchorId={(anchorId) => {
                   const anchor = anchors.find(a => a.id === anchorId);
                   if (anchor) {
@@ -667,7 +616,6 @@ export default function ReadPage() {
               <StructuredView
                 anchors={anchors}
                 paperId={paperId}
-                currentRoute={currentRoute}
                 completedSections={session?.completedSections || new Set()}
                 onSectionClick={handleAnchorClick}
                 onMarkComplete={handleMarkSectionComplete}

@@ -3,7 +3,8 @@
 """
 import os
 import json
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional
 from pydantic import BaseModel
@@ -31,6 +32,22 @@ from ...schemas.enhance import (
 from ...config import settings
 
 router = APIRouter()
+
+def _merge_extra_data(paper_extra, patch: dict) -> dict:
+    base = paper_extra or {}
+    if not isinstance(base, dict):
+        base = {}
+    return {**base, **patch}
+
+
+def _get_cached_pack(paper, key: str):
+    extra = paper.extra_data or {}
+    if not isinstance(extra, dict):
+        return None
+    cached = extra.get(key)
+    if not isinstance(cached, dict):
+        return None
+    return cached.get("data")
 
 
 def get_paper_content(paper) -> str:
@@ -642,6 +659,7 @@ async def generate_paper_card_full(
 async def generate_skim_pack(
     paper_id: str,
     request: SkimPackRequest,
+    force: bool = Query(False, description="是否忽略缓存并强制重新生成"),
     db: Session = Depends(get_db),
     enhancer: ContentEnhancer = Depends(get_enhancer)
 ):
@@ -691,6 +709,14 @@ async def generate_skim_pack(
             teaching_skim=result.get("teaching_skim", {})
         )
         
+        extra_patch = {
+            "skim_pack_cache": {
+                "generated_at": datetime.utcnow().isoformat(),
+                "data": skim_pack.model_dump(),
+            }
+        }
+        paper_crud.update(db, paper_id, extra_data=_merge_extra_data(paper.extra_data, extra_patch))
+
         return SkimPackResponse(skim_pack=skim_pack, cached=False)
         
     except Exception as e:
@@ -705,6 +731,7 @@ async def generate_skim_pack(
 async def generate_deep_pack(
     paper_id: str,
     request: DeepPackRequest,
+    force: bool = Query(False, description="是否忽略缓存并强制重新生成"),
     db: Session = Depends(get_db),
     enhancer: ContentEnhancer = Depends(get_enhancer)
 ):
@@ -764,10 +791,52 @@ async def generate_deep_pack(
             section_summaries=result.get("section_summaries", {})
         )
         
+        extra_patch = {
+            "deep_pack_cache": {
+                "generated_at": datetime.utcnow().isoformat(),
+                "data": deep_pack.model_dump(),
+            }
+        }
+        paper_crud.update(db, paper_id, extra_data=_merge_extra_data(paper.extra_data, extra_patch))
+
         return DeepPackResponse(deep_pack=deep_pack, cached=False)
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"精读包生成失败: {str(e)}")
+
+
+@router.get("/skim-pack/{paper_id}", response_model=SkimPackResponse)
+async def get_skim_pack(
+    paper_id: str,
+    db: Session = Depends(get_db),
+):
+    paper = paper_crud.get(db, paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="论文不存在")
+
+    cached = _get_cached_pack(paper, "skim_pack_cache")
+    if not cached:
+        raise HTTPException(status_code=404, detail="未找到粗读包缓存")
+
+    skim_pack = SkimPack(**cached)
+    return SkimPackResponse(skim_pack=skim_pack, cached=True)
+
+
+@router.get("/deep-pack/{paper_id}", response_model=DeepPackResponse)
+async def get_deep_pack(
+    paper_id: str,
+    db: Session = Depends(get_db),
+):
+    paper = paper_crud.get(db, paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="论文不存在")
+
+    cached = _get_cached_pack(paper, "deep_pack_cache")
+    if not cached:
+        raise HTTPException(status_code=404, detail="未找到精读包缓存")
+
+    deep_pack = DeepPack(**cached)
+    return DeepPackResponse(deep_pack=deep_pack, cached=True)
 
 
 # =========================
@@ -831,6 +900,22 @@ async def llm_skim(
     paper = paper_crud.get(db, paper_id)
     if not paper:
         raise HTTPException(status_code=404, detail="论文不存在")
+
+    cached = None if force else _get_cached_pack(paper, "deep_pack_cache")
+    if cached:
+        try:
+            deep_pack = DeepPack(**cached)
+            return DeepPackResponse(deep_pack=deep_pack, cached=True)
+        except Exception:
+            pass
+
+    cached = None if force else _get_cached_pack(paper, "skim_pack_cache")
+    if cached:
+        try:
+            skim_pack = SkimPack(**cached)
+            return SkimPackResponse(skim_pack=skim_pack, cached=True)
+        except Exception:
+            pass
 
     extra = paper.extra_data or {}
     if request.use_cache and extra.get("llm_skim"):

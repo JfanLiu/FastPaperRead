@@ -263,19 +263,7 @@ export default function OverviewPage({ params }: PageProps) {
                 </div>
               )}
 
-              {/* Recommended Route */}
-              {skimCard.recommended_sections && skimCard.recommended_sections.length > 0 && (
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500 mb-2">推荐阅读路线</h3>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {skimCard.recommended_sections.map((section) => (
-                      <Badge key={section} variant="info">
-                        {section}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {/* “阅读路线”功能已移除 */}
             </div>
           ) : (
             <div className="text-center py-8">

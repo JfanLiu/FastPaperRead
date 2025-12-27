@@ -30,9 +30,7 @@ import type {
 } from '@/types';
 import { Button, Badge } from '@/components/common';
 import { SkimCard } from '@/components/cards/SkimCard';
-import { ChecklistPanel } from './ChecklistPanel';
-import { EvidenceLedger } from './EvidenceLedger';
-import { cardApi, checklistApi, enhanceApiExtended, evidenceLedgerApi, skimApi } from '@/lib/api';
+import { cardApi, enhanceApiExtended, skimApi } from '@/lib/api';
 
 type WorkspaceTab = 'skim' | 'deep';
 
@@ -53,16 +51,6 @@ type KeyFigureItem = {
   caption?: string;
   image_path?: string;
   section?: string;
-};
-
-type ChecklistItem = {
-  id: string;
-  group: 'data' | 'preprocess' | 'training' | 'eval' | 'env';
-  text: string;
-  source_anchor?: string;
-  missing: boolean;
-  needs_verify: boolean;
-  value?: string;
 };
 
 function getSectionName(a: Anchor) {
@@ -115,15 +103,10 @@ export function MaterialsWorkspace({
   const [skimPack, setSkimPack] = useState<SkimPack | null>(null);  // 统一粗读包
 
   // ========= 精读包（Deep Pack） =========
-  const [paperCard, setPaperCard] = useState<PaperCardFull | null>(null);
-  const [paperCardLoading, setPaperCardLoading] = useState(false);
   const [paperCardSaving, setPaperCardSaving] = useState(false);
   const [deepError, setDeepError] = useState<string | null>(null);
   const [deepPack, setDeepPack] = useState<DeepPack | null>(null);  // 统一精读包
   const [deepPackLoading, setDeepPackLoading] = useState(false);  // 统一精读包加载状态
-
-  const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
-  const [checklistLoading, setChecklistLoading] = useState(false);
 
   // ========= 章节摘要（按路线范围） =========
   const sectionAnchors = useMemo(() => anchors.filter(a => a.type === 'section'), [anchors]);
@@ -191,7 +174,11 @@ export function MaterialsWorkspace({
         level: a.section_level || 1,
       }));
 
-      const res = await enhanceApiExtended.generateSkimPack(paperId, { sections_outline: sectionsOutline });
+      const res = await enhanceApiExtended.generateSkimPack(
+        paperId,
+        { sections_outline: sectionsOutline },
+        { force: Boolean(skimPack) }
+      );
       const pack = res.skim_pack;
       
       // 解包设置状态
@@ -241,21 +228,8 @@ export function MaterialsWorkspace({
     }
   }, [paperId, loadKeyFigures]);
 
-  const generatePaperCard = useCallback(async () => {
-    setDeepError(null);
-    setPaperCardLoading(true);
-    try {
-      const res = await enhanceApiExtended.generatePaperCardFull(paperId);
-      setPaperCard(res.paper_card);
-    } catch (e) {
-      console.error('生成 PaperCard 失败:', e);
-      setDeepError('生成 PaperCard 失败，请重试');
-    } finally {
-      setPaperCardLoading(false);
-    }
-  }, [paperId]);
-
-  const savePaperCardAsCard = useCallback(async () => {
+  const savePaperCardAsCard = useCallback(async (card?: PaperCardFull | null) => {
+    const paperCard = card ?? deepPack?.paper_card;
     if (!paperCard) return;
     setPaperCardSaving(true);
     setDeepError(null);
@@ -274,69 +248,7 @@ export function MaterialsWorkspace({
     } finally {
       setPaperCardSaving(false);
     }
-  }, [paperCard, paperId]);
-
-  const loadChecklist = useCallback(async () => {
-    try {
-      const result = await checklistApi.get(paperId);
-      if (result.items) {
-        const items: ChecklistItem[] = result.items.map((item: { id: string; group: string; text: string; found: boolean; needs_verify: boolean; inferred_value?: string; source_anchor_id?: string }) => ({
-          id: item.id,
-          group: item.group as ChecklistItem['group'],
-          text: item.text,
-          missing: !item.found,
-          needs_verify: item.needs_verify,
-          source_anchor: item.source_anchor_id,
-          value: item.inferred_value,
-        }));
-        setChecklistItems(items);
-      }
-    } catch {
-      // 不存在是正常的
-    }
-  }, [paperId]);
-
-  const generateChecklist = useCallback(async () => {
-    setChecklistLoading(true);
-    setDeepError(null);
-    try {
-      const result = await checklistApi.generate(paperId);
-      if (result.items) {
-        const items: ChecklistItem[] = result.items.map((item: { id: string; group: string; text: string; found: boolean; needs_verify: boolean; inferred_value?: string }) => ({
-          id: item.id,
-          group: item.group as ChecklistItem['group'],
-          text: item.text,
-          missing: !item.found,
-          needs_verify: item.needs_verify,
-          value: item.inferred_value,
-        }));
-        setChecklistItems(items);
-      }
-    } catch (e) {
-      console.error('生成复现清单失败:', e);
-      setDeepError('生成复现清单失败，请重试');
-    } finally {
-      setChecklistLoading(false);
-    }
-  }, [paperId]);
-
-  const updateChecklistItem = useCallback(async (itemId: string, updates: Partial<ChecklistItem>) => {
-    setChecklistItems(prev => prev.map(i => (i.id === itemId ? { ...i, ...updates } : i)));
-    if (itemId.startsWith('checklist_')) return;
-    try {
-      await checklistApi.updateItem(paperId, itemId, {
-        found: updates.missing === false,
-        note: updates.value,
-        inferred_value: updates.value,
-      });
-    } catch (e) {
-      console.error('同步清单项失败:', e);
-    }
-  }, [paperId]);
-
-  const deleteChecklistItem = useCallback((itemId: string) => {
-    setChecklistItems(prev => prev.filter(i => i.id !== itemId));
-  }, []);
+  }, [deepPack, paperId]);
 
   const generateSectionSummaries = useCallback(async (level: 'one_liner' | 'plain' | 'strict') => {
     setSummaryLoading(true);
@@ -486,12 +398,15 @@ export function MaterialsWorkspace({
         content: buildSectionContent({ paper, anchors, sectionName }),
       }));
 
-      const res = await enhanceApiExtended.generateDeepPack(paperId, { sections: sectionsData });
+      const res = await enhanceApiExtended.generateDeepPack(
+        paperId,
+        { sections: sectionsData },
+        { force: Boolean(deepPack) }
+      );
       const pack = res.deep_pack;
       
       // 解包设置状态
       setDeepPack(pack);
-      setPaperCard(pack.paper_card);
       // 设置章节摘要
       setSectionSummaries(pack.section_summaries || {});
       
@@ -503,25 +418,56 @@ export function MaterialsWorkspace({
     }
   }, [paperId, scopedSections, paper, anchors]);
 
-  // 保留原有的分步生成（兼容）
-  const generateDeepPack = useCallback(async () => {
-    setDeepError(null);
-    // 顺序执行：PaperCard -> Ledger -> Checklist -> Strict summaries（路线范围）
-    await generatePaperCard();
-    try {
-      await evidenceLedgerApi.generate(paperId, false);
-    } catch {
-      // EvidenceLedger 组件内还能再点生成，这里不强依赖
-    }
-    await generateChecklist();
-    await generateSectionSummaries('strict');
-  }, [generateChecklist, generatePaperCard, generateSectionSummaries, paperId]);
-
   useEffect(() => {
     loadExistingSkim();
-    loadChecklist();
     loadKeyFigures();
-  }, [loadExistingSkim, loadChecklist, loadKeyFigures]);
+  }, [loadExistingSkim, loadKeyFigures]);
+
+  const loadExistingUnifiedPacks = useCallback(async () => {
+    try {
+      const res = await enhanceApiExtended.getSkimPack(paperId);
+      if (res?.skim_pack) {
+        const pack = res.skim_pack;
+        setSkimPack(pack);
+        setSkimCard(pack.skim_card as unknown as SkimCardType);
+        setKeyFigures(
+          (pack.key_figures || []).map((f: KeyFigure, idx: number) => ({
+            anchor_id: f.id || `fig_${idx}`,
+            type: 'figure' as const,
+            caption: f.caption,
+            figure_number: f.id,
+            section: f.importance,
+          }))
+        );
+        if (pack.teaching_skim) {
+          setTeachingSkim({
+            version: pack.version,
+            paper_id: pack.paper_id,
+            route_scope: { type: 'full', sections: scopedSections },
+            cards: pack.teaching_skim.cards || [],
+            tables: pack.teaching_skim.tables || [],
+            next_steps: pack.teaching_skim.next_steps || [],
+          });
+        }
+      }
+    } catch {
+      // no cached skim pack
+    }
+
+    try {
+      const res = await enhanceApiExtended.getDeepPack(paperId);
+      if (res?.deep_pack) {
+        setDeepPack(res.deep_pack);
+        setSectionSummaries(res.deep_pack.section_summaries || {});
+      }
+    } catch {
+      // no cached deep pack
+    }
+  }, [paperId, scopedSections]);
+
+  useEffect(() => {
+    loadExistingUnifiedPacks();
+  }, [loadExistingUnifiedPacks]);
 
   const groupOrder: TeachingSkimGroup[] = ['why', 'insight', 'what', 'how', 'results', 'takeaways'];
   const groupLabels: Record<TeachingSkimGroup, string> = {
@@ -532,6 +478,275 @@ export function MaterialsWorkspace({
     results: 'Results（结果）',
     takeaways: 'Takeaways（带走点）',
   };
+
+  function DeepNarrative({ pack }: { pack: DeepPack }) {
+    const pc = pack.paper_card || {};
+    const el = pack.evidence_ledger || {};
+    const mf = pack.method_flow || {};
+    const ex = pack.experiment_setup || {};
+
+    const claims = Array.isArray(el.claims) ? el.claims : [];
+    const sectionSummaries = pack.section_summaries || {};
+    const sectionTitles = Object.keys(sectionSummaries);
+
+    return (
+      <article className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+        <header className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-indigo-50 to-white">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-gray-900">连续精读稿</div>
+              <div className="text-xs text-gray-600 mt-1">PaperCard → Evidence → Method → Experiments → Takeaways</div>
+            </div>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => savePaperCardAsCard(pack.paper_card)}
+              disabled={!pack.paper_card || paperCardSaving}
+            >
+              {paperCardSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Check className="w-4 h-4 mr-2" />}
+              保存为卡片
+            </Button>
+          </div>
+        </header>
+
+        <div className="p-5 space-y-6 leading-relaxed">
+          <section>
+            <h3 className="text-base font-semibold text-gray-900">1) PaperCard（核心结论）</h3>
+            {pc.one_line_summary && (
+              <div className="mt-3 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+                <div className="text-xs text-indigo-600 mb-1">一句话总结</div>
+                <div className="text-sm text-indigo-950 font-medium">{pc.one_line_summary}</div>
+              </div>
+            )}
+            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+              {Array.isArray(pc.contributions) && pc.contributions.length > 0 && (
+                <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="text-xs text-green-700 mb-2">贡献</div>
+                  <ul className="space-y-1 text-sm text-green-950">
+                    {pc.contributions.slice(0, 8).map((c: string, idx: number) => (
+                      <li key={idx} className="flex gap-2">
+                        <span className="font-bold">{idx + 1}.</span>
+                        <span className="flex-1">{c}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {Array.isArray(pc.limitations) && pc.limitations.length > 0 && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <div className="text-xs text-amber-700 mb-2">局限</div>
+                  <ul className="space-y-1 text-sm text-amber-950">
+                    {pc.limitations.slice(0, 8).map((l: string, idx: number) => (
+                      <li key={idx} className="flex gap-2">
+                        <span className="font-bold">{idx + 1}.</span>
+                        <span className="flex-1">{l}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+            {(pc.applicable_scope || pc.repro_risk) && (
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                {pc.applicable_scope && (
+                  <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                    <div className="text-xs text-gray-500 mb-1">适用范围</div>
+                    <div className="text-sm text-gray-900">{pc.applicable_scope}</div>
+                  </div>
+                )}
+                {pc.repro_risk && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                    <div className="text-xs text-red-700 mb-1">复现风险</div>
+                    <div className="text-sm text-red-950">{pc.repro_risk}</div>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+
+          <section>
+            <h3 className="text-base font-semibold text-gray-900">2) Evidence Ledger（主张-证据）</h3>
+            <div className="mt-2 flex items-center gap-3 text-sm">
+              <span className="text-gray-600">整体证据质量：</span>
+              <Badge
+                variant={
+                  el.overall_evidence_quality === 'strong'
+                    ? 'default'
+                    : el.overall_evidence_quality === 'weak'
+                      ? 'danger'
+                      : 'secondary'
+                }
+                size="sm"
+              >
+                {el.overall_evidence_quality === 'strong' ? '强' : el.overall_evidence_quality === 'weak' ? '弱' : '中'}
+              </Badge>
+            </div>
+            {Array.isArray(el.key_assumptions) && el.key_assumptions.length > 0 && (
+              <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-800">
+                <span className="text-gray-500">关键假设：</span>
+                {el.key_assumptions.join('；')}
+              </div>
+            )}
+            {claims.length > 0 ? (
+              <div className="mt-3 space-y-2">
+                {claims.slice(0, 8).map((claim: any) => (
+                  <div key={claim.id} className="p-3 border border-gray-200 rounded-lg">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1">
+                        <div className="text-sm font-medium text-gray-900">{claim.text}</div>
+                        {claim.evidence_summary && <div className="text-xs text-gray-600 mt-1">{claim.evidence_summary}</div>}
+                        {Array.isArray(claim.source_sections) && claim.source_sections.length > 0 && (
+                          <div className="text-xs text-gray-500 mt-1">来源：{claim.source_sections.join('、')}</div>
+                        )}
+                      </div>
+                      <Badge
+                        variant={claim.strength === 'strong' ? 'default' : claim.strength === 'weak' ? 'danger' : 'secondary'}
+                        size="sm"
+                      >
+                        {claim.strength === 'strong' ? '强' : claim.strength === 'weak' ? '弱' : '中'}
+                      </Badge>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-2 text-sm text-gray-500">暂无主张-证据条目。</div>
+            )}
+          </section>
+
+          <section>
+            <h3 className="text-base font-semibold text-gray-900">3) Method Flow（方法流程）</h3>
+            {mf.method_name && (
+              <div className="mt-2 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                <div className="text-xs text-purple-700 mb-1">方法名称</div>
+                <div className="text-sm text-purple-950 font-medium">{mf.method_name}</div>
+                {mf.overview && <div className="text-sm text-purple-900 mt-1">{mf.overview}</div>}
+              </div>
+            )}
+            {Array.isArray(mf.steps) && mf.steps.length > 0 && (
+              <div className="mt-3 space-y-2">
+                {mf.steps.slice(0, 12).map((step: any, idx: number) => (
+                  <div key={idx} className="p-3 border border-gray-200 rounded-lg">
+                    <div className="flex items-start gap-3">
+                      <div className="w-7 h-7 flex items-center justify-center bg-indigo-100 text-indigo-700 rounded-full text-xs font-semibold shrink-0">
+                        {step.step ?? idx + 1}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-gray-900">{step.name || `Step ${idx + 1}`}</div>
+                        {step.description && <div className="text-sm text-gray-700 mt-1">{step.description}</div>}
+                        {Array.isArray(step.inputs) && step.inputs.length > 0 && (
+                          <div className="text-xs text-gray-500 mt-1">输入：{step.inputs.join('、')}</div>
+                        )}
+                        {Array.isArray(step.outputs) && step.outputs.length > 0 && (
+                          <div className="text-xs text-gray-500">输出：{step.outputs.join('、')}</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {Array.isArray(mf.key_innovations) && mf.key_innovations.length > 0 && (
+              <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                <div className="text-xs text-green-700 mb-2">关键创新点</div>
+                <ul className="space-y-1 text-sm text-green-950">
+                  {mf.key_innovations.slice(0, 8).map((i: string, idx: number) => (
+                    <li key={idx}>• {i}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </section>
+
+          <section>
+            <h3 className="text-base font-semibold text-gray-900">4) Experiments（实验设置与结果要点）</h3>
+            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+              {Array.isArray(ex.datasets) && ex.datasets.length > 0 && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="text-xs text-blue-700 mb-2">数据集</div>
+                  <ul className="space-y-1 text-sm text-blue-950">
+                    {ex.datasets.slice(0, 8).map((d: any, idx: number) => (
+                      <li key={idx}>
+                        <span className="font-medium">{d.name}</span>
+                        {d.size && <span className="text-xs text-blue-700 ml-1">({d.size})</span>}
+                        {d.split && <span className="text-xs text-blue-700 ml-1">[{d.split}]</span>}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {Array.isArray(ex.baselines) && ex.baselines.length > 0 && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <div className="text-xs text-amber-700 mb-2">基线方法</div>
+                  <div className="text-sm text-amber-950">{ex.baselines.join('、')}</div>
+                </div>
+              )}
+              {Array.isArray(ex.metrics) && ex.metrics.length > 0 && (
+                <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="text-xs text-green-700 mb-2">评估指标</div>
+                  <ul className="space-y-1 text-sm text-green-950">
+                    {ex.metrics.slice(0, 10).map((m: any, idx: number) => (
+                      <li key={idx}>{m.name}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {ex.training_details && (
+                <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                  <div className="text-xs text-purple-700 mb-2">训练细节</div>
+                  <div className="text-sm text-purple-950 space-y-1">
+                    {ex.training_details.optimizer && <div>优化器：{ex.training_details.optimizer}</div>}
+                    {ex.training_details.learning_rate && <div>学习率：{ex.training_details.learning_rate}</div>}
+                    {ex.training_details.batch_size && <div>批次大小：{ex.training_details.batch_size}</div>}
+                    {ex.training_details.epochs && <div>轮数：{ex.training_details.epochs}</div>}
+                    {ex.training_details.hardware && <div>硬件：{ex.training_details.hardware}</div>}
+                  </div>
+                </div>
+              )}
+            </div>
+            {ex.reproducibility_notes && (
+              <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                <div className="text-xs text-red-700 mb-1">复现注意事项</div>
+                <div className="text-sm text-red-950">{ex.reproducibility_notes}</div>
+              </div>
+            )}
+          </section>
+
+          <section>
+            <h3 className="text-base font-semibold text-gray-900">5) Takeaways（你应该带走的）</h3>
+            {Array.isArray(pc.key_takeaways) && pc.key_takeaways.length > 0 ? (
+              <ul className="mt-2 space-y-1 text-sm text-gray-900">
+                {pc.key_takeaways.slice(0, 10).map((t: string, idx: number) => (
+                  <li key={idx} className="flex gap-2">
+                    <span className="text-indigo-600 font-bold">•</span>
+                    <span className="flex-1">{t}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="mt-2 text-sm text-gray-500">暂无 takeaways。</div>
+            )}
+
+            {sectionTitles.length > 0 && (
+              <div className="mt-4 border-t border-gray-100 pt-4">
+                <div className="text-sm font-medium text-gray-900">章节严格摘要（压缩）</div>
+                <div className="mt-2 space-y-2">
+                  {sectionTitles.slice(0, 10).map((title) => (
+                    <details key={title} className="border border-gray-200 rounded-lg p-3 bg-gray-50">
+                      <summary className="cursor-pointer text-sm font-medium text-gray-900">{title}</summary>
+                      <div className="mt-2 text-sm text-gray-800 whitespace-pre-wrap">
+                        {sectionSummaries[title]?.strict || ''}
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
+      </article>
+    );
+  }
 
   return (
     <div className={cn('flex flex-col h-full', className)}>
@@ -761,322 +976,17 @@ export function MaterialsWorkspace({
                     )}
                     {deepPack ? '重新生成' : '一键生成'}
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={generateDeepPack}
-                    disabled={paperCardLoading || checklistLoading || summaryLoading}
-                    title="分步生成（兼容旧版，多次 LLM 调用）"
-                  >
-                    {(paperCardLoading || checklistLoading || summaryLoading) ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <RefreshCw className="w-4 h-4 mr-2" />
-                    )}
-                    分步生成
-                  </Button>
                 </div>
               </div>
             </div>
 
-            {/* PaperCard（卡片化展示） */}
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-sm font-medium text-gray-900">PaperCard（整篇精读结论）</div>
-                <div className="flex items-center gap-2">
-                  <Button size="sm" onClick={generatePaperCard} disabled={paperCardLoading}>
-                    {paperCardLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
-                    {paperCard ? '重新生成' : '生成 PaperCard'}
-                  </Button>
-                  <Button size="sm" variant="secondary" onClick={savePaperCardAsCard} disabled={!paperCard || paperCardSaving}>
-                    {paperCardSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Check className="w-4 h-4 mr-2" />}
-                    保存为卡片
-                  </Button>
-                </div>
-              </div>
-
-              {!paperCard ? (
-                <div className="mt-3 text-sm text-gray-600">
-                  还没有 PaperCard。点击“生成 PaperCard”即可产出：一句话总结、贡献、局限、适用范围、复现风险。
-                </div>
-              ) : (
-                <div className="mt-3 space-y-3">
-                  <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
-                    <div className="text-xs text-indigo-600 mb-1">一句话总结</div>
-                    <div className="text-sm text-indigo-900 font-medium leading-relaxed">{paperCard.one_line_summary}</div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                      <div className="text-xs text-green-700 mb-2">主要贡献</div>
-                      <ul className="space-y-1 text-sm text-green-900">
-                        {paperCard.contributions.map((c, idx) => (
-                          <li key={idx} className="flex gap-2">
-                            <span className="font-bold">{idx + 1}.</span>
-                            <span className="flex-1">{c}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                      <div className="text-xs text-amber-700 mb-2">局限性</div>
-                      <ul className="space-y-1 text-sm text-amber-900">
-                        {paperCard.limitations.map((l, idx) => (
-                          <li key={idx} className="flex gap-2">
-                            <span className="font-bold">{idx + 1}.</span>
-                            <span className="flex-1">{l}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                      <div className="text-xs text-blue-700 mb-1">适用范围</div>
-                      <div className="text-sm text-blue-900 leading-relaxed">{paperCard.applicable_scope}</div>
-                    </div>
-                    <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                      <div className="text-xs text-red-700 mb-1">复现风险</div>
-                      <div className="text-sm text-red-900 leading-relaxed">{paperCard.repro_risk}</div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* 方法流程（从 DeepPack 解包） */}
-            {deepPack?.method_flow && (
-              <div className="bg-white border border-gray-200 rounded-xl p-4">
-                <div className="text-sm font-medium text-gray-900 mb-3">方法流程</div>
-                <div className="space-y-3">
-                  <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
-                    <div className="text-xs text-purple-600 mb-1">方法名称</div>
-                    <div className="text-sm text-purple-900 font-medium">{deepPack.method_flow.method_name}</div>
-                  </div>
-                  <div className="p-3 bg-gray-50 rounded-lg">
-                    <div className="text-xs text-gray-500 mb-1">概述</div>
-                    <div className="text-sm text-gray-800">{deepPack.method_flow.overview}</div>
-                  </div>
-                  {deepPack.method_flow.steps?.length > 0 && (
-                    <div className="p-3 border border-gray-200 rounded-lg">
-                      <div className="text-xs text-gray-500 mb-2">步骤流程</div>
-                      <div className="space-y-2">
-                        {deepPack.method_flow.steps.map((step, idx) => (
-                          <div key={idx} className="flex gap-3 p-2 bg-white border border-gray-100 rounded">
-                            <div className="w-6 h-6 flex items-center justify-center bg-indigo-100 text-indigo-700 rounded-full text-xs font-medium shrink-0">
-                              {step.step}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="font-medium text-gray-900 text-sm">{step.name}</div>
-                              <div className="text-xs text-gray-600 mt-1">{step.description}</div>
-                              {step.inputs?.length > 0 && (
-                                <div className="text-xs text-gray-500 mt-1">输入：{step.inputs.join('、')}</div>
-                              )}
-                              {step.outputs?.length > 0 && (
-                                <div className="text-xs text-gray-500">输出：{step.outputs.join('、')}</div>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {deepPack.method_flow.key_innovations?.length > 0 && (
-                    <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                      <div className="text-xs text-green-700 mb-1">关键创新点</div>
-                      <ul className="space-y-1 text-sm text-green-900">
-                        {deepPack.method_flow.key_innovations.map((i, idx) => (
-                          <li key={idx}>• {i}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
+            {deepPack ? (
+              <DeepNarrative pack={deepPack} />
+            ) : (
+              <div className="bg-white border border-gray-200 rounded-xl p-6 text-sm text-gray-600">
+                还没有精读稿。点击上方“一键生成”即可生成一份连续叙事精读稿（PaperCard→Evidence→Method→Experiments→Takeaways）。
               </div>
             )}
-
-            {/* 实验设置（从 DeepPack 解包） */}
-            {deepPack?.experiment_setup && (
-              <div className="bg-white border border-gray-200 rounded-xl p-4">
-                <div className="text-sm font-medium text-gray-900 mb-3">实验设置</div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {deepPack.experiment_setup.datasets?.length > 0 && (
-                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                      <div className="text-xs text-blue-700 mb-2">数据集</div>
-                      <ul className="space-y-1 text-sm text-blue-900">
-                        {deepPack.experiment_setup.datasets.map((d, idx) => (
-                          <li key={idx}>
-                            <span className="font-medium">{d.name}</span>
-                            {d.size && <span className="text-xs text-blue-700 ml-1">({d.size})</span>}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {deepPack.experiment_setup.baselines?.length > 0 && (
-                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                      <div className="text-xs text-amber-700 mb-2">基线方法</div>
-                      <div className="text-sm text-amber-900">{deepPack.experiment_setup.baselines.join('、')}</div>
-                    </div>
-                  )}
-                  {deepPack.experiment_setup.metrics?.length > 0 && (
-                    <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                      <div className="text-xs text-green-700 mb-2">评估指标</div>
-                      <ul className="space-y-1 text-sm text-green-900">
-                        {deepPack.experiment_setup.metrics.map((m, idx) => (
-                          <li key={idx}>{m.name}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {deepPack.experiment_setup.training_details && (
-                    <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
-                      <div className="text-xs text-purple-700 mb-2">训练细节</div>
-                      <div className="text-sm text-purple-900 space-y-1">
-                        {deepPack.experiment_setup.training_details.optimizer && (
-                          <div>优化器：{deepPack.experiment_setup.training_details.optimizer}</div>
-                        )}
-                        {deepPack.experiment_setup.training_details.learning_rate && (
-                          <div>学习率：{deepPack.experiment_setup.training_details.learning_rate}</div>
-                        )}
-                        {deepPack.experiment_setup.training_details.batch_size && (
-                          <div>批次大小：{deepPack.experiment_setup.training_details.batch_size}</div>
-                        )}
-                        {deepPack.experiment_setup.training_details.hardware && (
-                          <div>硬件：{deepPack.experiment_setup.training_details.hardware}</div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                {deepPack.experiment_setup.reproducibility_notes && (
-                  <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
-                    <div className="text-xs text-red-700 mb-1">复现注意事项</div>
-                    <div className="text-sm text-red-900">{deepPack.experiment_setup.reproducibility_notes}</div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 证据台账（从 DeepPack 解包 + EvidenceLedger 组件） */}
-            {deepPack?.evidence_ledger && (
-              <div className="bg-white border border-gray-200 rounded-xl p-4">
-                <div className="text-sm font-medium text-gray-900 mb-3">证据台账（来自精读包）</div>
-                <div className="p-3 bg-gray-50 rounded-lg mb-3">
-                  <div className="flex items-center gap-4 text-sm">
-                    <span className="text-gray-600">整体证据质量：</span>
-                    <Badge 
-                      variant={deepPack.evidence_ledger.overall_evidence_quality === 'strong' ? 'default' : 
-                               deepPack.evidence_ledger.overall_evidence_quality === 'weak' ? 'danger' : 'secondary'}
-                    >
-                      {deepPack.evidence_ledger.overall_evidence_quality === 'strong' ? '强' : 
-                       deepPack.evidence_ledger.overall_evidence_quality === 'weak' ? '弱' : '中等'}
-                    </Badge>
-                  </div>
-                  {deepPack.evidence_ledger.key_assumptions?.length > 0 && (
-                    <div className="mt-2 text-sm text-gray-700">
-                      <span className="text-gray-500">关键假设：</span>
-                      {deepPack.evidence_ledger.key_assumptions.join('；')}
-                    </div>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  {deepPack.evidence_ledger.claims?.slice(0, 5).map(claim => (
-                    <div key={claim.id} className="p-3 border border-gray-200 rounded-lg">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex-1">
-                          <div className="text-sm text-gray-900 font-medium">{claim.text}</div>
-                          {claim.evidence_summary && (
-                            <div className="text-xs text-gray-600 mt-1">{claim.evidence_summary}</div>
-                          )}
-                        </div>
-                        <Badge 
-                          variant={claim.strength === 'strong' ? 'default' : 
-                                   claim.strength === 'weak' ? 'danger' : 'secondary'}
-                          size="sm"
-                        >
-                          {claim.strength === 'strong' ? '强' : claim.strength === 'weak' ? '弱' : '中'}
-                        </Badge>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Evidence Ledger（独立组件，支持交互编辑） */}
-            <div className="bg-white border border-gray-200 rounded-xl">
-              <div className="px-4 py-3 border-b border-gray-100">
-                <div className="text-sm font-medium text-gray-900">主张-证据台账（可编辑）</div>
-                <div className="text-xs text-gray-500 mt-1">
-                  点击"生成台账"后，你可以逐条编辑主张、调整证据强度，并跳回原文锚点核对。
-                </div>
-              </div>
-              <div className="p-2">
-                <EvidenceLedger
-                  paperId={paperId}
-                  defaultOpen
-                  onAnchorClick={(anchorId) => onOpenPdfAtAnchorId?.(anchorId)}
-                />
-              </div>
-            </div>
-
-            {/* Checklist（表格/清单） */}
-            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-medium text-gray-900">复现清单（全文）</div>
-                  <div className="text-xs text-gray-500 mt-1">建议用于精读后的“可复现性核对与缺失项追踪”。</div>
-                </div>
-                <Button size="sm" onClick={generateChecklist} disabled={checklistLoading}>
-                  {checklistLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
-                  {checklistItems.length > 0 ? '重新生成' : '生成清单'}
-                </Button>
-              </div>
-              <div className="h-[520px]">
-                <ChecklistPanel
-                  items={checklistItems}
-                  paperId={paperId}
-                  onAddItem={(item) => {
-                    const newItem: ChecklistItem = { id: `checklist_${Date.now()}`, ...item } as ChecklistItem;
-                    setChecklistItems(prev => [...prev, newItem]);
-                  }}
-                  onUpdateItem={updateChecklistItem}
-                  onDeleteItem={deleteChecklistItem}
-                  onJumpToAnchor={(anchorId) => onOpenPdfAtAnchorId?.(anchorId)}
-                  onFindMissing={generateChecklist}
-                />
-              </div>
-            </div>
-
-            {/* 章节严格摘要 */}
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <div className="text-sm font-medium text-gray-900">章节严格摘要（按路线范围）</div>
-              <div className="mt-3 space-y-3">
-                {scopedSections.map(sectionName => {
-                  const s = sectionSummaries[sectionName];
-                  return (
-                    <div key={sectionName} className="border border-gray-200 rounded-lg p-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="font-medium text-gray-800">{sectionName}</div>
-                        {s ? (
-                          <Badge variant="secondary" size="sm">已生成</Badge>
-                        ) : (
-                          <Badge variant="outline" size="sm">未生成</Badge>
-                        )}
-                      </div>
-                      {s ? (
-                        <div className="mt-2 p-2 bg-gray-50 rounded text-sm text-gray-800">
-                          <div className="text-xs text-gray-500 mb-1">严格</div>
-                          {s.strict}
-                        </div>
-                      ) : (
-                        <div className="mt-2 text-sm text-gray-500">点击上方「一键生成」获取精读包（含严格摘要）。</div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
 
             {/* 提示：原文回跳 */}
             {!onOpenPdfAtAnchorId && (

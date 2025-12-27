@@ -181,12 +181,6 @@ export const anchorApi = {
     return res.data;
   },
 
-  // 获取阅读路线
-  getReadingRoute: async (paperId: string, routeName: string) => {
-    const res = await api.get(`/anchors/paper/${paperId}/routes/${routeName}`);
-    return res.data;
-  },
-
   // 获取单个锚点
   get: async (anchorId: string): Promise<Anchor> => {
     const res = await api.get(`/anchors/${anchorId}`);
@@ -669,9 +663,15 @@ export const enhanceApiExtended = {
   // 一次生成完整粗读材料（skim_card + key_figures + teaching_skim）
   generateSkimPack: async (
     paperId: string,
-    request: SkimPackRequest
+    request: SkimPackRequest,
+    options?: { force?: boolean }
   ): Promise<SkimPackResponse> => {
-    const res = await api.post(`/enhance/skim-pack/${paperId}`, request);
+    const res = await api.post(`/enhance/skim-pack/${paperId}`, request, { params: { force: options?.force } });
+    return res.data;
+  },
+
+  getSkimPack: async (paperId: string): Promise<SkimPackResponse> => {
+    const res = await api.get(`/enhance/skim-pack/${paperId}`);
     return res.data;
   },
 
@@ -679,9 +679,15 @@ export const enhanceApiExtended = {
   // 一次生成完整精读材料（paper_card + evidence_ledger + method_flow + experiment_setup + section_summaries）
   generateDeepPack: async (
     paperId: string,
-    request: DeepPackRequest
+    request: DeepPackRequest,
+    options?: { force?: boolean }
   ): Promise<DeepPackResponse> => {
-    const res = await api.post(`/enhance/deep-pack/${paperId}`, request);
+    const res = await api.post(`/enhance/deep-pack/${paperId}`, request, { params: { force: options?.force } });
+    return res.data;
+  },
+
+  getDeepPack: async (paperId: string): Promise<DeepPackResponse> => {
+    const res = await api.get(`/enhance/deep-pack/${paperId}`);
     return res.data;
   },
 
