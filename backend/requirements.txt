@@ -8,6 +8,7 @@ pydantic-settings>=2.1.0
 sqlalchemy>=2.0.0
 alembic>=1.13.0
 aiosqlite>=0.19.0  # Async SQLite support
+psycopg2-binary>=2.9.9  # PostgreSQL driver
 
 # LLM
 openai>=1.10.0

@@ -114,6 +114,31 @@ npm run dev
 docker-compose up -d
 ```
 
+### Docker 单容器部署（前端 + 后端 + PostgreSQL）
+
+使用项目根目录下的 `Dockerfile` 可以构建一个包含前端、后端与内置 PostgreSQL 的单镜像：
+
+```bash
+# 构建镜像（可按需覆盖 API 地址）
+docker build \
+  --build-arg NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1 \
+  -t fastpaperread:all-in-one .
+
+# 运行容器（暴露前端3000、后端8000、数据库5432）
+docker run -d \
+  --name fastpaperread \
+  -p 3000:3000 \
+  -p 8000:8000 \
+  -p 5432:5432 \
+  --env-file .env \
+  -v fastpaperread_pg:/data/postgres \
+  fastpaperread:all-in-one
+```
+
+- 默认数据库：`postgres/postgres`，库名 `fastpaperread`，可用 `POSTGRES_USER|POSTGRES_PASSWORD|POSTGRES_DB` 覆盖；`DATABASE_URL` 会自动指向容器内数据库。  
+- `NEXT_PUBLIC_API_URL` 会在构建时写入前端，如需指向其他域名/端口请重新 `docker build --build-arg ...`。  
+- 上传/输出目录默认在容器内 `/app/backend/uploads`、`/app/backend/output`，需要持久化可额外挂载卷。
+
 ## 📁 项目结构
 
 ```
