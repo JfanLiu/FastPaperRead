@@ -15,6 +15,7 @@ import {
   Calendar,
   FileText,
   AlertCircle,
+  GitCompare,
 } from 'lucide-react';
 
 interface ReviewItem {
@@ -83,10 +84,16 @@ export default function ReviewListPage() {
   };
 
   const headerActions = (
-    <Button variant="secondary" onClick={loadReviews}>
-      <RefreshCw className="w-4 h-4 mr-1" />
-      刷新
-    </Button>
+    <div className="flex items-center gap-2">
+      <Button variant="secondary" onClick={() => router.push('/compare')}>
+        <GitCompare className="w-4 h-4 mr-1" />
+        去论文对比
+      </Button>
+      <Button variant="secondary" onClick={loadReviews}>
+        <RefreshCw className="w-4 h-4 mr-1" />
+        刷新
+      </Button>
+    </div>
   );
 
   if (isLoading) {

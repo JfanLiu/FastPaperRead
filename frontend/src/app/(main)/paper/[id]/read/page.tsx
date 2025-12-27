@@ -37,6 +37,7 @@ import {
   Play,
   ArrowLeft,
   Home,
+  ClipboardList,
 } from 'lucide-react';
 
 // 动态导入 PDFViewer，禁用服务端渲染以避免 DOMMatrix 错误
@@ -558,6 +559,14 @@ export default function ReadPage() {
             >
               <FileText className="w-3.5 h-3.5" />
               PaperCard
+            </button>
+            <button 
+              onClick={() => router.push(`/paper/${paperId}/review`)}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg"
+              title="去审稿页面"
+            >
+              <ClipboardList className="w-3.5 h-3.5" />
+              审稿
             </button>
             <button 
               onClick={() => {
