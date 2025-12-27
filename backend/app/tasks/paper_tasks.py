@@ -17,6 +17,20 @@ from ..core.websocket import send_import_progress
 logger = logging.getLogger(__name__)
 
 
+def _clean_str(value: Optional[str]) -> Optional[str]:
+    """移除字符串中的 NUL 字符，避免写入数据库失败"""
+    if value is None:
+        return None
+    return value.replace("\x00", "")
+
+
+def _clean_list_str(values):
+    """清理字符串列表中的 NUL"""
+    if not values:
+        return values
+    return [_clean_str(v) for v in values]
+
+
 def get_db_session() -> Session:
     """获取数据库会话"""
     return SessionLocal()
@@ -99,6 +113,8 @@ async def _process_paper_import_async(paper_id: str, pdf_path: str):
         
         # Step 4: 保存锚点到数据库
         for anchor_data in anchor_extractor.to_dict_list(anchors):
+            # 清理潜在的 NUL 字符，防止写库报错
+            anchor_data = {k: _clean_str(v) if isinstance(v, str) else v for k, v in anchor_data.items()}
             anchor = AnchorModel(
                 paper_id=paper_id,
                 type=AnchorType(anchor_data['type']) if anchor_data['type'] in [e.value for e in AnchorType] else AnchorType.PARAGRAPH,
@@ -131,11 +147,11 @@ async def _process_paper_import_async(paper_id: str, pdf_path: str):
         if metadata.get('title'):
             current_title = paper.title or ""
             if current_title.startswith('Importing') or current_title.endswith('.pdf') or not current_title:
-                paper.title = metadata['title']
+                paper.title = _clean_str(metadata['title'])
         
         # 更新作者
         if metadata.get('authors'):
-            paper.authors = metadata['authors']
+            paper.authors = _clean_list_str(metadata['authors'])
         
         # 更新年份
         if metadata.get('year'):
@@ -143,15 +159,15 @@ async def _process_paper_import_async(paper_id: str, pdf_path: str):
         
         # 更新会议/期刊
         if metadata.get('venue'):
-            paper.venue = metadata['venue']
+            paper.venue = _clean_str(metadata['venue'])
         
         # 更新摘要
         if metadata.get('abstract'):
-            paper.abstract = metadata['abstract']
+            paper.abstract = _clean_str(metadata['abstract'])
         
         # 更新关键词
         if metadata.get('keywords'):
-            paper.keywords = metadata['keywords']
+            paper.keywords = _clean_list_str(metadata['keywords'])
         
         # 完成
         paper.status = PaperStatus.UNREAD
@@ -261,4 +277,3 @@ async def _update_job_error(
         message=error_message,
         status="failed"
     )
-

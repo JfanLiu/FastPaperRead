@@ -3,6 +3,8 @@ set -euo pipefail
 
 export PATH="/opt/venv/bin:${PATH}"
 export NODE_ENV=${NODE_ENV:-production}
+export LANG=${LANG:-C.UTF-8}
+export LC_ALL=${LC_ALL:-C.UTF-8}
 
 POSTGRES_USER=${POSTGRES_USER:-postgres}
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
@@ -21,7 +23,7 @@ init_database() {
     echo "Initializing PostgreSQL data directory at ${PGDATA}..."
     mkdir -p "${PGDATA}"
     chown -R postgres:postgres "${PGDATA}"
-    gosu postgres "${PG_BIN}/initdb" -D "${PGDATA}"
+    gosu postgres "${PG_BIN}/initdb" -D "${PGDATA}" --encoding=UTF8 --locale=C.UTF-8
     echo "listen_addresses='*'" >> "${PGDATA}/postgresql.conf"
     echo "host all all 0.0.0.0/0 md5" >> "${PGDATA}/pg_hba.conf"
     echo "host all all ::/0 md5" >> "${PGDATA}/pg_hba.conf"

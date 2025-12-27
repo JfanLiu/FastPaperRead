@@ -116,21 +116,22 @@ docker-compose up -d
 
 ### Docker 单容器部署（前端 + 后端 + PostgreSQL）
 
-当前可用的命令（前端端口占用时改用宿主 3001 -> 容器 3000）：
+当前可用命令（生产/演示都用这一组，前端端口占用时改用宿主 3001 -> 容器 3000）：
 
 ```bash
-# 构建镜像（把 <服务器IP或域名> 换成实际地址，前端 API 指到该服务器的 8000 端口）
+# 构建镜像：把 <服务器IP或域名> 换成实际地址，让前端请求指向服务器 8000
 docker build \
   --build-arg NEXT_PUBLIC_API_URL=http://<服务器IP或域名>:8000/api/v1 \
   -t fastpaperread:all-in-one .
 
-# 运行容器；宿主 3001 -> 容器 3000，宿主 8000 -> 容器 8000
+# 运行容器；如有 .env（LLM/MinerU/其它变量），加上 --env-file .env
 docker run -d --name fastpaperread \
   -p 3001:3000 -p 8000:8000 \
+  --env-file .env \
   fastpaperread:all-in-one
 ```
 
-- 访问前端：`http://<服务器IP或域名>:3001`  
+- 前端入口：`http://<服务器IP或域名>:3001`
 - 前端上传/请求会指向 `http://<服务器IP或域名>:8000/api/v1`（如需改域名/端口，重新 build 时调整 `NEXT_PUBLIC_API_URL`）
 
 ## 📁 项目结构

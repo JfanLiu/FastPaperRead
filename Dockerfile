@@ -29,6 +29,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     NODE_ENV=production \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
     http_proxy= \
     https_proxy=
 
