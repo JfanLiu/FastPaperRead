@@ -554,39 +554,53 @@ class PDFParser:
                 break
         
         # 寻找作者 - 在标题之后、摘要之前
-        for i, line in enumerate(clean_lines[title_idx+1:title_idx+20]):
-            # 移除 Markdown 标记
-            line = re.sub(r'^#+\s*', '', line)
-            
-            # 遇到摘要就停止
-            if re.match(r'^Abstract', line, re.IGNORECASE):
+        def _is_affiliation(text: str) -> bool:
+            return bool(
+                re.search(
+                    r'(university|institute|laboratory|department|center|centre|college|school|hospital|company|corp|inc|tech|lab|academy)',
+                    text,
+                    re.IGNORECASE,
+                )
+            )
+
+        def _normalize_author_token(token: str) -> str:
+            token = re.sub(r'<sup>.*?</sup>', ' ', token, flags=re.IGNORECASE)
+            token = re.sub(r'\$?\^{[^}]*}\$?', ' ', token)  # 移除 ^{} 上标
+            token = re.sub(r'[∗†‡\\*~\^`\d\[\]\(\)]', ' ', token)
+            token = token.replace('¨u', 'ü').replace('¨o', 'ö').replace('¨a', 'ä')
+            token = re.sub(r'\s+', ' ', token).strip(' ,;')
+            return token
+
+        author_candidates = []
+        stop_keywords = re.compile(r'^(abstract|summary|résumé|keywords?)', re.IGNORECASE)
+        for i, line in enumerate(clean_lines[title_idx + 1 : title_idx + 20]):
+            line_no_md = re.sub(r'^#+\s*', '', line)
+            if stop_keywords.match(line_no_md):
                 break
-            
-            # 跳过机构名称（通常全大写或包含University/Institute等）
-            if re.match(r'^[A-Z\s]{3,}$', line):  # 纯大写行
+            if _is_affiliation(line_no_md) and ',' not in line_no_md:
+                # 典型的机构行，跳过
                 continue
-            if re.search(r'^(University|Institute|Laboratory|Department|NVIDIA|Google|Microsoft|Meta|Facebook|School|College)\b', line, re.IGNORECASE):
-                continue
-            
-            # 清理特殊符号并检查是否像作者名
-            clean_line = re.sub(r'[∗†‡\*\d\[\]\(\)]+', '', line).strip()
-            # 处理特殊的变音符号（如 M¨uller -> Müller）
-            clean_line = clean_line.replace('¨u', 'ü').replace('¨o', 'ö').replace('¨a', 'ä')
-            
-            # 检查是否像单个作者名（FirstName LastName 或 FirstName M. LastName）
-            # 支持各种Unicode字符
-            if re.match(r'^[A-Z][a-zA-Z\u00C0-\u017F]+\s+(?:[A-Z]\.?\s+)?[A-Z][a-zA-Z\u00C0-\u017F]+$', clean_line):
-                metadata["authors"].append(clean_line)
-                continue
-            
-            # 检查是否是多个作者在一行（逗号分隔）
-            if ',' in line or ' and ' in line.lower():
-                parts = re.split(r',\s*(?:and\s+)?|\s+and\s+', line, flags=re.IGNORECASE)
-                for part in parts:
-                    clean_part = re.sub(r'[∗†‡\*\d\[\]\(\)]+', '', part).strip()
-                    clean_part = clean_part.replace('¨u', 'ü').replace('¨o', 'ö').replace('¨a', 'ä')
-                    if re.match(r'^[A-Z][a-zA-Z\u00C0-\u017F]+\s+(?:[A-Z]\.?\s+)?[A-Z][a-zA-Z\u00C0-\u017F]+$', clean_part):
-                        metadata["authors"].append(clean_part)
+
+            # 按常见分隔符拆分
+            parts = re.split(r',|;| and | & ', line_no_md, flags=re.IGNORECASE)
+            for part in parts:
+                token = _normalize_author_token(part)
+                if not token or len(token) < 3 or len(token) > 60:
+                    continue
+                # 拉丁名字：支持首字母大写、最多4个词，包含短横线/点
+                latin_pat = r'^[A-Z][A-Za-zÀ-ÖØ-öø-ÿ\.-]*(\s+[A-Z][A-Za-zÀ-ÖØ-öø-ÿ\.-]*){0,3}$'
+                # 简单中文名（2-6个汉字，允许中间 ·）
+                zh_pat = r'^[\u4e00-\u9fa5·]{2,6}$'
+                if re.match(latin_pat, token) or re.match(zh_pat, token):
+                    author_candidates.append(token)
+
+        # 去重保序
+        seen = set()
+        metadata["authors"] = []
+        for name in author_candidates:
+            if name not in seen:
+                seen.add(name)
+                metadata["authors"].append(name)
         
         # 去重并限制数量
         metadata["authors"] = list(dict.fromkeys(metadata["authors"]))[:20]
