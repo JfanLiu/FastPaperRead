@@ -100,10 +100,19 @@ class AnchorExtractor:
                 current_page = int(page_match.group(1))
                 i += 1
                 continue
+
+            # 跳过作者行（例如多名作者 + 上标数字/符号）
+            if self._is_author_line(line):
+                i += 1
+                continue
             
             # 检测章节
             section_anchor = self._extract_section(line, current_page, sequence)
             if section_anchor:
+                # 作者行若被误判为章节也跳过
+                if self._is_author_line(section_anchor.text):
+                    i += 1
+                    continue
                 current_section = section_anchor.text
                 current_section_level = section_anchor.section_level
                 section_anchor.section = current_section
@@ -215,6 +224,31 @@ class AnchorExtractor:
             anchors = self._merge_equations(anchors, equations)
         
         return anchors
+
+    def _is_author_line(self, line: str) -> bool:
+        """
+        判断一行是否为作者列表：包含至少两个名字 + 上标/数字/逗号
+        仅用于过滤出现在大纲中的作者行
+        """
+        import re
+        # 去掉 markdown 标题符号
+        line = re.sub(r'^#+\s*', '', line)
+        # 需要有逗号/and/& 分隔多名作者
+        if not re.search(r'(,| and | & )', line, re.IGNORECASE):
+            return False
+        # 含有上标/数字脚注
+        if re.search(r'\^\{|\\?\\?\d|\$\\?\\?\\^', line):
+            return True
+        # 至少两个看似姓名的片段
+        parts = re.split(r',|;| and | & ', line, flags=re.IGNORECASE)
+        name_like = 0
+        name_pat = re.compile(r'[A-Z][A-Za-zÀ-ÖØ-öø-ÿ\.-]+ [A-Z][A-Za-zÀ-ÖØ-öø-ÿ\.-]+')
+        zh_pat = re.compile(r'[\u4e00-\u9fa5·]{2,6}')
+        for p in parts:
+            p = p.strip()
+            if name_pat.search(p) or zh_pat.search(p):
+                name_like += 1
+        return name_like >= 2
     
     def _extract_section(self, line: str, page: int, sequence: int) -> Optional[ExtractedAnchor]:
         """提取章节"""
