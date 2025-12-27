@@ -696,6 +696,36 @@ export const enhanceApiExtended = {
 };
 
 // ============================================
+// LLM Reading API (Skim/Outline managed by LLM)
+// ============================================
+
+export const llmReadingApi = {
+  skim: async (
+    paperId: string,
+    params?: { max_chunks?: number; max_parallel?: number; use_cache?: boolean }
+  ): Promise<{ skim: any; cached: boolean }> => {
+    const res = await api.post(`/enhance/llm-skim/${paperId}`, params || {});
+    return res.data;
+  },
+
+  outline: async (
+    paperId: string,
+    params?: { use_cache?: boolean; max_chars?: number }
+  ): Promise<{ outline: any; cached: boolean }> => {
+    const res = await api.post(`/enhance/llm-outline/${paperId}`, params || {});
+    return res.data;
+  },
+
+  updateOutline: async (
+    paperId: string,
+    newNotes: Record<string, unknown>
+  ): Promise<{ outline: any; cached: boolean }> => {
+    const res = await api.post(`/enhance/llm-outline/${paperId}/update`, { new_notes: newNotes });
+    return res.data;
+  },
+};
+
+// ============================================
 // Annotations API (PDF批注/高亮)
 // ============================================
 

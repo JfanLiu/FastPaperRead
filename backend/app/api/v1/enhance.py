@@ -2,6 +2,7 @@
 增强引擎API端点 - 完整实现
 """
 import os
+import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -56,6 +57,21 @@ class UnifiedEnhanceRequest(BaseModel):
     selected_text: Optional[str] = None
     level: Optional[str] = "plain"  # plain, strict
     use_cache: bool = True
+
+
+class LlmSkimRequest(BaseModel):
+    max_chunks: int = 8
+    max_parallel: int = 4
+    use_cache: bool = True
+
+
+class LlmOutlineRequest(BaseModel):
+    use_cache: bool = True
+    max_chars: int = 18000
+
+
+class LlmOutlineUpdateRequest(BaseModel):
+    new_notes: dict
 
 
 @router.post("", response_model=dict)
@@ -800,3 +816,106 @@ async def generate_batch_section_summary(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"批量摘要生成失败: {str(e)}")
+
+
+@router.post("/llm-skim/{paper_id}", response_model=dict)
+async def llm_skim(
+    paper_id: str,
+    request: LlmSkimRequest,
+    db: Session = Depends(get_db),
+    enhancer: ContentEnhancer = Depends(get_enhancer),
+):
+    """
+    生成“给用户先看的粗读版”（map-reduce，可并行），并存入 papers.extra_data.llm_skim
+    """
+    paper = paper_crud.get(db, paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="论文不存在")
+
+    extra = paper.extra_data or {}
+    if request.use_cache and extra.get("llm_skim"):
+        return {"skim": extra["llm_skim"], "cached": True}
+
+    content = get_paper_content(paper)
+    if not content:
+        raise HTTPException(status_code=400, detail="论文内容不足")
+
+    paper_meta = {
+        "paper_id": paper_id,
+        "title": paper.title,
+        "authors": paper.authors or [],
+        "year": paper.year,
+        "venue": paper.venue or "",
+        "abstract": (paper.abstract or "")[:1500],
+    }
+
+    skim = await enhancer.generate_llm_skim(
+        paper_meta=paper_meta,
+        paper_content=content,
+        max_chunks=request.max_chunks,
+        max_parallel=request.max_parallel,
+    )
+    extra["llm_skim"] = skim
+    paper_crud.update(db, paper_id, extra_data=extra)
+    return {"skim": skim, "cached": False}
+
+
+@router.post("/llm-outline/{paper_id}", response_model=dict)
+async def llm_outline(
+    paper_id: str,
+    request: LlmOutlineRequest,
+    db: Session = Depends(get_db),
+    enhancer: ContentEnhancer = Depends(get_enhancer),
+):
+    """
+    生成“LLM 维护的大纲”，并存入 papers.extra_data.llm_outline
+    """
+    paper = paper_crud.get(db, paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="论文不存在")
+
+    extra = paper.extra_data or {}
+    if request.use_cache and extra.get("llm_outline"):
+        return {"outline": extra["llm_outline"], "cached": True}
+
+    skim = extra.get("llm_skim")
+    compact = json.dumps({"skim": skim}, ensure_ascii=False) if skim else get_paper_content(paper)
+
+    paper_meta = {
+        "paper_id": paper_id,
+        "title": paper.title,
+        "authors": paper.authors or [],
+        "year": paper.year,
+        "venue": paper.venue or "",
+    }
+
+    outline = await enhancer.generate_llm_outline(
+        paper_meta=paper_meta,
+        paper_content=compact,
+        max_chars=request.max_chars,
+    )
+    extra["llm_outline"] = outline
+    paper_crud.update(db, paper_id, extra_data=extra)
+    return {"outline": outline, "cached": False}
+
+
+@router.post("/llm-outline/{paper_id}/update", response_model=dict)
+async def llm_outline_update(
+    paper_id: str,
+    request: LlmOutlineUpdateRequest,
+    db: Session = Depends(get_db),
+    enhancer: ContentEnhancer = Depends(get_enhancer),
+):
+    """
+    以“新增内容摘要/笔记”为输入增量更新大纲（LLM 做最小改动更新）
+    """
+    paper = paper_crud.get(db, paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="论文不存在")
+
+    extra = paper.extra_data or {}
+    current = extra.get("llm_outline") or {"version": "llm_outline_v1", "outline": []}
+    updated = await enhancer.update_llm_outline(current_outline=current, new_notes=request.new_notes or {})
+    extra["llm_outline"] = updated
+    paper_crud.update(db, paper_id, extra_data=extra)
+    return {"outline": updated, "cached": False}

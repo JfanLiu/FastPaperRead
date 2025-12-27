@@ -28,6 +28,109 @@ class ContentEnhancer:
                 except json.JSONDecodeError:
                     pass
         return {}
+
+    def _chunk_text(self, text: str, *, max_chars: int = 6000, overlap: int = 400) -> List[str]:
+        if not text:
+            return []
+        chunks: List[str] = []
+        i = 0
+        n = len(text)
+        while i < n:
+            j = min(n, i + max_chars)
+            chunks.append(text[i:j])
+            if j >= n:
+                break
+            i = max(0, j - overlap)
+        return chunks
+
+    async def generate_llm_skim(
+        self,
+        *,
+        paper_meta: Dict[str, Any],
+        paper_content: str,
+        max_chunks: int = 8,
+        max_parallel: int = 4,
+    ) -> Dict:
+        """
+        Map-reduce 粗读：并行对分块做提取，再合并为一份粗读版。
+        """
+        import asyncio
+
+        chunks = self._chunk_text(paper_content, max_chars=6000, overlap=400)[:max_chunks]
+        if not chunks:
+            return {}
+
+        semaphore = asyncio.Semaphore(max_parallel)
+
+        async def _map_one(chunk: str) -> Dict:
+            async with semaphore:
+                prompt = prompts.LLM_SKIM_MAP_PROMPT.format(chunk=chunk[:6500])
+                resp = await self.llm.chat_completion(
+                    [
+                        {"role": "system", "content": "你是一个学术论文粗读助手。"},
+                        {"role": "user", "content": prompt},
+                    ]
+                )
+                return self._parse_json_response(resp)
+
+        mapped = await asyncio.gather(*[_map_one(c) for c in chunks])
+        paper_meta_json = json.dumps(paper_meta, ensure_ascii=False)
+        chunks_summaries_json = json.dumps(mapped, ensure_ascii=False)
+        reduce_prompt = prompts.LLM_SKIM_REDUCE_PROMPT.format(
+            paper_meta_json=paper_meta_json,
+            chunks_summaries_json=chunks_summaries_json[:14000],
+        )
+        reduced = await self.llm.chat_completion(
+            [
+                {"role": "system", "content": "你是一个学术论文粗读整合助手。"},
+                {"role": "user", "content": reduce_prompt},
+            ]
+        )
+        return self._parse_json_response(reduced)
+
+    async def generate_llm_outline(
+        self,
+        *,
+        paper_meta: Dict[str, Any],
+        paper_content: str,
+        max_chars: int = 18000,
+    ) -> Dict:
+        """
+        生成 LLM 大纲（一次调用）。内容过长时应传入压缩/截断后的 paper_content。
+        """
+        paper_meta_json = json.dumps(paper_meta, ensure_ascii=False)
+        paper_compact_json = json.dumps({"content": paper_content[:max_chars]}, ensure_ascii=False)
+        prompt = prompts.LLM_OUTLINE_PROMPT.format(
+            paper_meta_json=paper_meta_json,
+            paper_compact_json=paper_compact_json,
+        )
+        resp = await self.llm.chat_completion(
+            [
+                {"role": "system", "content": "你是一个学术论文结构化大纲生成器。"},
+                {"role": "user", "content": prompt},
+            ]
+        )
+        return self._parse_json_response(resp)
+
+    async def update_llm_outline(
+        self,
+        *,
+        current_outline: Dict[str, Any],
+        new_notes: Dict[str, Any],
+    ) -> Dict:
+        current_outline_json = json.dumps(current_outline, ensure_ascii=False)
+        new_notes_json = json.dumps(new_notes, ensure_ascii=False)
+        prompt = prompts.LLM_OUTLINE_UPDATE_PROMPT.format(
+            current_outline_json=current_outline_json[:14000],
+            new_notes_json=new_notes_json[:14000],
+        )
+        resp = await self.llm.chat_completion(
+            [
+                {"role": "system", "content": "你是一个学术论文大纲维护器。"},
+                {"role": "user", "content": prompt},
+            ]
+        )
+        return self._parse_json_response(resp)
     
     async def generate_skim_card(self, content: str) -> Dict:
         """生成SkimCard"""

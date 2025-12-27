@@ -33,7 +33,7 @@ import { Button, Badge } from '@/components/common';
 import { SkimCard } from '@/components/cards/SkimCard';
 import { ChecklistPanel } from './ChecklistPanel';
 import { EvidenceLedger } from './EvidenceLedger';
-import { cardApi, checklistApi, enhanceApiExtended, evidenceLedgerApi, skimApi } from '@/lib/api';
+import { cardApi, checklistApi, enhanceApiExtended, evidenceLedgerApi, llmReadingApi, skimApi } from '@/lib/api';
 
 type WorkspaceTab = 'skim' | 'deep';
 
@@ -105,6 +105,16 @@ export function MaterialsWorkspace({
 }: MaterialsWorkspaceProps) {
   const [tab, setTab] = useState<WorkspaceTab>('skim');
 
+  // ========= LLM 粗读 + LLM 大纲（只读，LLM 维护） =========
+  const [llmSkim, setLlmSkim] = useState<any | null>(null);
+  const [llmSkimLoading, setLlmSkimLoading] = useState(false);
+  const [llmSkimError, setLlmSkimError] = useState<string | null>(null);
+  const [selectedNextStepId, setSelectedNextStepId] = useState<string | null>(null);
+
+  const [llmOutline, setLlmOutline] = useState<any | null>(null);
+  const [llmOutlineLoading, setLlmOutlineLoading] = useState(false);
+  const [llmOutlineError, setLlmOutlineError] = useState<string | null>(null);
+
   // ========= 粗读包（Skim Pack） =========
   const [skimCard, setSkimCard] = useState<SkimCardType | null>(null);
   const [skimLoading, setSkimLoading] = useState(false);
@@ -163,12 +173,69 @@ export function MaterialsWorkspace({
   const [summaryProgress, setSummaryProgress] = useState<{ done: number; total: number; current?: string }>({ done: 0, total: 0 });
   const cancelSummariesRef = useRef(false);
 
+  function OutlineTree({ outline }: { outline: any[] }) {
+    return (
+      <div className="space-y-2">
+        {(outline || []).map((node: any) => (
+          <div key={node.id || node.title} className="border border-gray-200 rounded-lg p-3">
+            <div className="font-medium text-gray-900">{node.title || 'Untitled'}</div>
+            {Array.isArray(node.bullets) && node.bullets.length > 0 && (
+              <ul className="mt-2 list-disc pl-5 text-sm text-gray-700 space-y-1">
+                {node.bullets.slice(0, 8).map((b: string, idx: number) => (
+                  <li key={idx}>{b}</li>
+                ))}
+              </ul>
+            )}
+            {Array.isArray(node.children) && node.children.length > 0 && (
+              <div className="mt-2 pl-3 border-l border-gray-200">
+                <OutlineTree outline={node.children} />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   const loadExistingSkim = useCallback(async () => {
     try {
       const res = await skimApi.get(paperId);
       setSkimCard(res);
     } catch {
       // 未生成是正常的
+    }
+  }, [paperId]);
+
+  const loadLlmSkim = useCallback(async (opts?: { force?: boolean }) => {
+    setLlmSkimError(null);
+    setLlmSkimLoading(true);
+    try {
+      const res = await llmReadingApi.skim(paperId, {
+        max_chunks: 8,
+        max_parallel: 4,
+        use_cache: opts?.force ? false : true,
+      });
+      setLlmSkim(res.skim || null);
+    } catch (e: any) {
+      setLlmSkimError(e?.message || '生成粗读失败');
+    } finally {
+      setLlmSkimLoading(false);
+    }
+  }, [paperId]);
+
+  const loadLlmOutline = useCallback(async (opts?: { force?: boolean }) => {
+    setLlmOutlineError(null);
+    setLlmOutlineLoading(true);
+    try {
+      const res = await llmReadingApi.outline(paperId, {
+        use_cache: opts?.force ? false : true,
+        max_chars: 18000,
+      });
+      setLlmOutline(res.outline || null);
+    } catch (e: any) {
+      setLlmOutlineError(e?.message || '生成大纲失败');
+    } finally {
+      setLlmOutlineLoading(false);
     }
   }, [paperId]);
 
@@ -582,6 +649,152 @@ export function MaterialsWorkspace({
         {/* ========== 粗读包 ========== */}
         {tab === 'skim' && (
           <>
+            {/* ========== 粗读（LLM） ========== */}
+            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-gray-900">粗读（LLM）</div>
+                  <div className="text-xs text-gray-500 mt-0.5">先看 what/why/how/results，再选 next step；大纲由 LLM 维护。</div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button size="sm" variant="secondary" onClick={() => loadLlmSkim({ force: true })} disabled={llmSkimLoading}>
+                    {llmSkimLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                    重新生成
+                  </Button>
+                  <Button size="sm" onClick={() => loadLlmSkim()} disabled={llmSkimLoading || !!llmSkim}>
+                    {llmSkimLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+                    {llmSkim ? '已生成' : '生成粗读'}
+                  </Button>
+                </div>
+              </div>
+              <div className="p-4 space-y-3">
+                {llmSkimError && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{llmSkimError}</div>
+                )}
+                {!llmSkim && !llmSkimLoading && (
+                  <div className="text-sm text-gray-500">点击“生成粗读”开始。</div>
+                )}
+                {llmSkim && (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="border border-gray-200 rounded-lg p-3">
+                        <div className="text-xs text-gray-500">是什么</div>
+                        <div className="text-sm text-gray-900 mt-1 whitespace-pre-wrap">{llmSkim.what || ''}</div>
+                      </div>
+                      <div className="border border-gray-200 rounded-lg p-3">
+                        <div className="text-xs text-gray-500">为什么</div>
+                        <div className="text-sm text-gray-900 mt-1 whitespace-pre-wrap">{llmSkim.why || ''}</div>
+                      </div>
+                      <div className="border border-gray-200 rounded-lg p-3">
+                        <div className="text-xs text-gray-500">怎么做</div>
+                        {Array.isArray(llmSkim.how) ? (
+                          <ul className="mt-1 list-disc pl-5 text-sm text-gray-800 space-y-1">
+                            {llmSkim.how.slice(0, 10).map((x: string, idx: number) => <li key={idx}>{x}</li>)}
+                          </ul>
+                        ) : (
+                          <div className="text-sm text-gray-900 mt-1 whitespace-pre-wrap">{llmSkim.how || ''}</div>
+                        )}
+                      </div>
+                      <div className="border border-gray-200 rounded-lg p-3">
+                        <div className="text-xs text-gray-500">结果与局限</div>
+                        {Array.isArray(llmSkim.results) && llmSkim.results.length > 0 && (
+                          <div className="mt-2">
+                            <div className="text-xs text-gray-500">结果</div>
+                            <ul className="mt-1 list-disc pl-5 text-sm text-gray-800 space-y-1">
+                              {llmSkim.results.slice(0, 8).map((x: string, idx: number) => <li key={idx}>{x}</li>)}
+                            </ul>
+                          </div>
+                        )}
+                        {Array.isArray(llmSkim.limitations) && llmSkim.limitations.length > 0 && (
+                          <div className="mt-3">
+                            <div className="text-xs text-gray-500">局限</div>
+                            <ul className="mt-1 list-disc pl-5 text-sm text-gray-800 space-y-1">
+                              {llmSkim.limitations.slice(0, 6).map((x: string, idx: number) => <li key={idx}>{x}</li>)}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {Array.isArray(llmSkim.recommended_next_steps) && llmSkim.recommended_next_steps.length > 0 && (
+                      <div className="border border-gray-200 rounded-lg p-3">
+                        <div className="text-sm font-medium text-gray-900">下一步阅读方向</div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {llmSkim.recommended_next_steps.slice(0, 6).map((ns: any) => (
+                            <Button
+                              key={ns.id || ns.title}
+                              size="sm"
+                              variant={selectedNextStepId === (ns.id || ns.title) ? 'primary' : 'outline'}
+                              onClick={() => {
+                                const id = ns.id || ns.title;
+                                setSelectedNextStepId(id);
+                                if (!llmOutline) loadLlmOutline();
+                              }}
+                            >
+                              {ns.title || 'Next'}
+                            </Button>
+                          ))}
+                        </div>
+                        {selectedNextStepId && (
+                          <div className="mt-3 p-3 bg-gray-50 rounded-lg text-sm text-gray-800">
+                            {(() => {
+                              const ns = llmSkim.recommended_next_steps.find((x: any) => (x.id || x.title) === selectedNextStepId);
+                              if (!ns) return null;
+                              return (
+                                <div className="space-y-2">
+                                  {ns.goal && <div><span className="text-gray-500">目标：</span>{ns.goal}</div>}
+                                  {Array.isArray(ns.focus) && ns.focus.length > 0 && (
+                                    <div>
+                                      <div className="text-gray-500">重点：</div>
+                                      <ul className="list-disc pl-5 mt-1 space-y-1">
+                                        {ns.focus.slice(0, 8).map((x: string, idx: number) => <li key={idx}>{x}</li>)}
+                                      </ul>
+                                    </div>
+                                  )}
+                                  {ns.deliverable && <div><span className="text-gray-500">产物：</span>{ns.deliverable}</div>}
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* ========== 大纲（LLM 维护，只读） ========== */}
+            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-gray-900">大纲（LLM 维护）</div>
+                  <div className="text-xs text-gray-500 mt-0.5">建议先生成粗读再生成大纲；大纲只读展示。</div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button size="sm" variant="secondary" onClick={() => loadLlmOutline({ force: true })} disabled={llmOutlineLoading}>
+                    {llmOutlineLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                    重新生成
+                  </Button>
+                  <Button size="sm" onClick={() => loadLlmOutline()} disabled={llmOutlineLoading || !!llmOutline}>
+                    {llmOutlineLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileText className="w-4 h-4 mr-2" />}
+                    {llmOutline ? '已生成' : '生成大纲'}
+                  </Button>
+                </div>
+              </div>
+              <div className="p-4">
+                {llmOutlineError && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{llmOutlineError}</div>
+                )}
+                {!llmOutline && !llmOutlineLoading && (
+                  <div className="text-sm text-gray-500">点击“生成大纲”开始。</div>
+                )}
+                {llmOutline?.outline && Array.isArray(llmOutline.outline) && (
+                  <OutlineTree outline={llmOutline.outline} />
+                )}
+              </div>
+            </div>
+
             <div className="bg-white border border-gray-200 rounded-xl p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>

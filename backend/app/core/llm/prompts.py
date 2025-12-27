@@ -846,3 +846,98 @@ BATCH_SECTION_SUMMARY_PROMPT = """你是一个学术论文分析专家。请为�
 
 只输出JSON，不要其他内容。
 """
+
+
+# ===== LLM 粗读（面向用户先看）=====
+LLM_SKIM_MAP_PROMPT = """你是一个学术论文粗读助手。请阅读以下论文片段，提取“粗读要点”（尽量忠实原文，不要臆测）。
+
+【论文片段】
+{chunk}
+
+【输出 JSON Schema（只输出 JSON）】
+{{
+  "what": "这篇论文做了什么（1-2句）",
+  "why": "为什么做（动机/痛点/瓶颈）（1-2句）",
+  "how": "怎么做（方法主线）（2-5条要点）",
+  "results": "结果/结论（2-5条要点）",
+  "limitations": "局限/风险（0-3条要点）",
+  "terms": ["关键术语1", "关键术语2"]
+}}
+"""
+
+LLM_SKIM_REDUCE_PROMPT = """你是一个学术论文粗读整合助手。请将多个片段的粗读要点合并为一份统一的“粗读版”输出，要求信息不重复、表达清晰。
+
+paper_meta:
+{paper_meta_json}
+
+chunks_summaries_json:
+{chunks_summaries_json}
+
+【输出 JSON Schema（只输出 JSON）】
+{{
+  "version": "llm_skim_v1",
+  "what": "是什么（3-5句）",
+  "why": "为什么（3-5句）",
+  "how": ["方法步骤/关键组件 1", "2", "3"],
+  "results": ["结果要点1", "要点2", "要点3"],
+  "limitations": ["局限1", "局限2"],
+  "recommended_next_steps": [
+    {{
+      "id": "ns1",
+      "title": "下一步方向标题",
+      "goal": "选择该方向你想得到什么",
+      "focus": ["阅读/分析重点1", "重点2"],
+      "deliverable": "输出产物（例如：复现计划/对比表/实现笔记/审稿问题清单）"
+    }}
+  ]
+}}
+"""
+
+
+# ===== LLM 大纲（永远由 LLM 维护）=====
+LLM_OUTLINE_PROMPT = """你是一个学术论文结构化大纲生成器。请基于论文内容，生成一份“可读的大纲”，用于前端展示与后续增量维护。
+
+paper_meta:
+{paper_meta_json}
+
+paper_compact_json:
+{paper_compact_json}
+
+【要求】
+1) 大纲要分层（最多 3 层），每个节点要有简短标题 + 2-5 个要点
+2) 只输出 JSON
+
+【输出 JSON Schema】
+{{
+  "version": "llm_outline_v1",
+  "outline": [
+    {{
+      "id": "sec_1",
+      "title": "Section Title",
+      "bullets": ["要点1", "要点2"],
+      "children": [
+        {{
+          "id": "sec_1_1",
+          "title": "Subsection Title",
+          "bullets": ["要点1", "要点2"]
+        }}
+      ]
+    }}
+  ]
+}}
+"""
+
+LLM_OUTLINE_UPDATE_PROMPT = """你是一个学术论文大纲维护器。现在已有一个大纲，请根据新增内容对大纲进行最小改动更新（可新增节点/补充 bullet，但不要改乱原结构）。
+
+current_outline_json:
+{current_outline_json}
+
+new_notes_json:
+{new_notes_json}
+
+【输出 JSON（只输出 JSON）】
+{{
+  "version": "llm_outline_v1",
+  "outline": [ ...更新后的完整大纲... ]
+}}
+"""
